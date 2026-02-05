@@ -136,6 +136,22 @@ type DefenseStyle = {
   playDisruption: number
 }
 
+type BoxScoreLine = {
+  name: string
+  minutes: number
+  points: number
+  rebounds: number
+  assists: number
+  steals: number
+  blocks: number
+  turnovers: number
+}
+
+type BoxScoreSummary = {
+  lines: BoxScoreLine[]
+  totals: BoxScoreLine
+}
+
 const offensiveSystems: (SystemProfile & { playStyle: OffenseStyle })[] = [
   {
     name: '5 Out Motion Offense',
@@ -1680,6 +1696,83 @@ const getDefenseClusterRating = (profile: DefensiveProfile) =>
     profile.matchupDifficulty) /
   7
 
+const randomRange = (min: number, max: number) => Math.random() * (max - min) + min
+
+const simulateBoxScore = (
+  lineup: Player[],
+  opponentDefenseProfile: DefensiveProfile,
+  opponentOffenseProfile: OffensiveProfile,
+  pace: number,
+) => {
+  const totalUsage = lineup.reduce((total, player) => total + buildOffensiveProfile(player).usageRate, 0) || 1
+  const defenseImpact = clamp(
+    (opponentDefenseProfile.craftedDpm + opponentDefenseProfile.blockRate + opponentDefenseProfile.stealRate) / 330,
+    0.12,
+    0.4,
+  )
+  const opponentBallSecurity = clamp((opponentOffenseProfile.usageRate + opponentOffenseProfile.assistRate) / 200, 0.45, 0.8)
+
+  const lines = lineup.map((player) => {
+    const offenseProfile = buildOffensiveProfile(player)
+    const defenseProfile = buildDefensiveProfile(player)
+    const usageShare = offenseProfile.usageRate / totalUsage
+    const minutes = clamp(22 + player.stamina * 0.18 + randomRange(-4, 4), 18, 38)
+    const possessions = pace * (minutes / 48)
+    const shotQuality =
+      (player.offense + offenseProfile.spotUp + offenseProfile.isolation + offenseProfile.transition) / 4 / 100
+
+    const pointsBase = possessions * usageShare * (1.8 + shotQuality) * (1 - defenseImpact * 0.9)
+    const points = clamp(pointsBase + randomRange(-4, 4) + shotQuality * 6, 0, 45)
+
+    const assistsBase =
+      possessions * usageShare * (offenseProfile.assistRate / 120) * (1 - defenseImpact * 0.4) * (0.8 + player.playmaking / 200)
+    const assists = clamp(assistsBase + randomRange(-1.5, 1.5), 0, 15)
+
+    const reboundsBase =
+      possessions * (player.rebounding / 100) * (0.22 + offenseProfile.putback / 500) * (1 - opponentDefenseProfile.defensiveReboundRate / 140)
+    const rebounds = clamp(reboundsBase + randomRange(-1.5, 1.5), 0, 18)
+
+    const stealsBase = possessions * (defenseProfile.stealRate / 100) * (1 - opponentBallSecurity) * 0.5
+    const steals = clamp(stealsBase + randomRange(-0.6, 0.6), 0, 5)
+
+    const blocksBase = possessions * (defenseProfile.blockRate / 100) * 0.35 * (1 + (1 - shotQuality))
+    const blocks = clamp(blocksBase + randomRange(-0.4, 0.4), 0, 4)
+
+    const turnoversBase = possessions * usageShare * (0.22 + defenseImpact * 0.6)
+    const turnovers = clamp(turnoversBase + randomRange(-1, 1), 0, 7)
+
+    return {
+      name: player.name,
+      minutes: Math.round(minutes),
+      points: Math.round(points),
+      rebounds: Math.round(rebounds),
+      assists: Math.round(assists),
+      steals: Math.round(steals),
+      blocks: Math.round(blocks),
+      turnovers: Math.round(turnovers),
+    }
+  })
+
+  const totals = lines.reduce(
+    (acc, line) => ({
+      name: 'Totals',
+      minutes: acc.minutes + line.minutes,
+      points: acc.points + line.points,
+      rebounds: acc.rebounds + line.rebounds,
+      assists: acc.assists + line.assists,
+      steals: acc.steals + line.steals,
+      blocks: acc.blocks + line.blocks,
+      turnovers: acc.turnovers + line.turnovers,
+    }),
+    { name: 'Totals', minutes: 0, points: 0, rebounds: 0, assists: 0, steals: 0, blocks: 0, turnovers: 0 },
+  )
+
+  return {
+    lines: lines.sort((a, b) => b.points - a.points),
+    totals,
+  }
+}
+
 const simulateMatchup = (lineup: Player[], offenseSystem: SystemProfile, defenseSystem: SystemProfile) => {
   const baseOffense = lineup.reduce((total, player) => total + player.offense, 0) / lineup.length
   const baseDefense = lineup.reduce((total, player) => total + player.defense, 0) / lineup.length
@@ -1729,6 +1822,7 @@ const App = () => {
   const [log, setLog] = useState<string[]>([])
   const [result, setResult] = useState<string>('')
   const [opponentInfo, setOpponentInfo] = useState<string>('')
+  const [boxScore, setBoxScore] = useState<{ home: BoxScoreSummary; away: BoxScoreSummary } | null>(null)
 
   const [selectedPlayers, setSelectedPlayers] = useState<Player[]>(() => players.slice(0, 8))
   const [opponentRoster, setOpponentRoster] = useState<Player[]>(() => players.slice(8, 16))
@@ -1819,6 +1913,9 @@ const App = () => {
     const projectedPoints = clamp(108 + netOffense + paceBlend * 0.5, 80, 140)
     const projectedOpponent = clamp(108 - netDefense + paceBlend * 0.45, 78, 138)
 
+    const homeBoxScore = simulateBoxScore(lineup, opponentDefenseProfile, opponentOffenseProfile, paceBlend)
+    const awayBoxScore = simulateBoxScore(opponentRoster, defenseProfile, offenseProfile, paceBlend)
+
     const summary = `Final Score Projection: ${projectedPoints.toFixed(0)} - ${projectedOpponent.toFixed(0)}`
     const detail = `Prep: ${prepFocus.name} | Counter edge ${offenseCounter.toFixed(1)} | Pace ${paceBlend.toFixed(0)}`
     const offenseDetail = `Offense cluster fit ${offenseStyleFit.toFixed(1)} | Defense cluster fit ${
@@ -1830,10 +1927,12 @@ const App = () => {
     const rosterDetail = `Roster ${lineup.length} players | Opponent ${opponentRoster.length} players (${opponentOffense.name} / ${
       opponentDefense.name
     })`
+    const boxScoreDetail = `Box score leaders: ${homeBoxScore.lines[0]?.name ?? 'N/A'} ${homeBoxScore.lines[0]?.points ?? 0} pts`
 
     setResult(summary)
     setOpponentInfo(`Opponent: ${opponentOffense.name} + ${opponentDefense.name}`)
-    setLog((prev) => [summary, detail, offenseDetail, defenseDetail, rosterDetail, ...prev].slice(0, 8))
+    setLog((prev) => [summary, detail, offenseDetail, defenseDetail, rosterDetail, boxScoreDetail, ...prev].slice(0, 8))
+    setBoxScore({ home: homeBoxScore, away: awayBoxScore })
   }
 
   return (
@@ -1928,6 +2027,64 @@ const App = () => {
               </ul>
             )}
           </div>
+          {boxScore ? (
+            <div className="box-score">
+              <h3>Simulated Box Score</h3>
+              <p className="muted">
+                Player outputs blend usage, performance ratings, and opponent scheme pressure. Rerun for new variance.
+              </p>
+              <div className="box-score-grid">
+                {[
+                  { title: 'Your Lineup', data: boxScore.home },
+                  { title: 'Opponent', data: boxScore.away },
+                ].map((group) => (
+                  <div key={group.title} className="box-score-card">
+                    <h4>{group.title}</h4>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Player</th>
+                          <th>MIN</th>
+                          <th>PTS</th>
+                          <th>REB</th>
+                          <th>AST</th>
+                          <th>STL</th>
+                          <th>BLK</th>
+                          <th>TOV</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.data.lines.map((line) => (
+                          <tr key={`${group.title}-${line.name}`}>
+                            <td>{line.name}</td>
+                            <td>{line.minutes}</td>
+                            <td>{line.points}</td>
+                            <td>{line.rebounds}</td>
+                            <td>{line.assists}</td>
+                            <td>{line.steals}</td>
+                            <td>{line.blocks}</td>
+                            <td>{line.turnovers}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td>{group.data.totals.name}</td>
+                          <td>{group.data.totals.minutes}</td>
+                          <td>{group.data.totals.points}</td>
+                          <td>{group.data.totals.rebounds}</td>
+                          <td>{group.data.totals.assists}</td>
+                          <td>{group.data.totals.steals}</td>
+                          <td>{group.data.totals.blocks}</td>
+                          <td>{group.data.totals.turnovers}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="simulator-panel">
