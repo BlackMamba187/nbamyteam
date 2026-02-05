@@ -82,9 +82,14 @@ select {
   font-size: 0.95rem;
 }
 
-.primary {
-  background: #0f172a;
-  color: #ffffff;
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.primary,
+.secondary {
   border: none;
   padding: 10px 18px;
   border-radius: 999px;
@@ -92,8 +97,22 @@ select {
   font-weight: 600;
 }
 
+.primary {
+  background: #0f172a;
+  color: #ffffff;
+}
+
 .primary:hover {
   background: #1e293b;
+}
+
+.secondary {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.secondary:hover {
+  background: #cbd5f5;
 }
 
 .result {
@@ -103,6 +122,15 @@ select {
   background: #e0f2fe;
   color: #0c4a6e;
   font-weight: 600;
+}
+
+.opponent-info {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 500;
 }
 
 .log {
@@ -164,7 +192,7 @@ select {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin: 12px 0;
   font-size: 0.9rem;
@@ -175,6 +203,140 @@ select {
   gap: 6px;
   color: #475569;
   font-size: 0.85rem;
+}
+
+.profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.profile-chip {
+  background: #e0f2fe;
+  color: #0c4a6e;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.profile-grid {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.profile-grid h4 {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  color: #0f172a;
+}
+
+.profile-grid ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.profile-micro {
+  display: grid;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: #475569;
+  margin-top: 8px;
+}
+
+.roster-summary {
+  display: flex;
+  justify-content: space-between;
+  margin: 16px 0;
+  font-weight: 600;
+}
+
+.roster-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.roster-card {
+  text-align: left;
+  background: #f8fafc;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  padding: 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.roster-card:hover {
+  transform: translateY(-2px);
+  border-color: #94a3b8;
+}
+
+.roster-card.selected {
+  border-color: #0f172a;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.15);
+}
+
+.roster-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.roster-card-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.roster-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #1f2937;
+  margin-top: 8px;
+}
+
+.opponent-card {
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  padding: 16px;
+  background: #f8fafc;
+}
+
+.opponent-roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.prep-notes {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.prep-card {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #475569;
+}
+
+.prep-card h4 {
+  margin: 0 0 6px;
+  color: #0f172a;
+}
+
+.prep-card.active {
+  border-color: #0f172a;
+  background: #e2e8f0;
 }
 
 .overview {
@@ -274,7 +436,7 @@ select {
   }
 
   .select-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .overview {
@@ -283,5 +445,19 @@ select {
 
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .roster-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1100px) {
+  .roster-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
