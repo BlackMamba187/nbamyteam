@@ -995,6 +995,17 @@ const players: Player[] = [
   },
 ]
 
+const teamOptions = [
+  'Metro Monarchs',
+  'Harbor City Waves',
+  'Summit Peaks',
+  'Capital Commanders',
+  'Valley Vortex',
+  'Lakeside Legends',
+  'Skyline Flyers',
+  'Riverfront Royals',
+]
+
 const categories = [
   {
     title: 'Offensive Skills',
@@ -1456,6 +1467,159 @@ const shuffle = <T,>(items: T[]) =>
     .sort((a, b) => a.sort - b.sort)
     .map(({ item }) => item)
 
+const buildRandomRoster = (excludeNames: string[], rosterSize = 8) => {
+  const available = players.filter((player) => !excludeNames.includes(player.name))
+  return shuffle(available).slice(0, rosterSize)
+}
+
+type PossessionSimResult = {
+  projectedPoints: number
+  projectedOpponent: number
+  possessions: number
+  paceBlend: number
+}
+
+const simulatePossessionGame = ({
+  lineup,
+  offenseSystem,
+  defenseSystem,
+  opponentRoster,
+  opponentOffense,
+  opponentDefense,
+  prepFocus,
+  includePrep,
+}: {
+  lineup: Player[]
+  offenseSystem: SystemProfile
+  defenseSystem: SystemProfile
+  opponentRoster: Player[]
+  opponentOffense: SystemProfile
+  opponentDefense: SystemProfile
+  prepFocus: PrepFocus
+  includePrep: boolean
+}): PossessionSimResult => {
+  const metrics = simulateMatchup(lineup, offenseSystem, defenseSystem)
+  const opponentMetrics = simulateMatchup(opponentRoster, opponentOffense, opponentDefense)
+
+  const offenseProfile = averageOffenseProfile(lineup)
+  const defenseProfile = averageDefenseProfile(lineup)
+  const opponentOffenseProfile = averageOffenseProfile(opponentRoster)
+  const opponentDefenseProfile = averageDefenseProfile(opponentRoster)
+
+  const offenseStyleFit = getOffenseStyleFit(offenseProfile, offenseSystem.playStyle)
+  const defenseStyleFit = getDefenseStyleFit(defenseProfile, defenseSystem.defenseStyle)
+  const opponentOffenseFit = getOffenseStyleFit(opponentOffenseProfile, opponentOffense.playStyle)
+  const opponentDefenseFit = getDefenseStyleFit(opponentDefenseProfile, opponentDefense.defenseStyle)
+
+  const pace = clamp(94 + (metrics.basePlaymaking - 75) * 0.45, 86, 106)
+  const opponentPace = clamp(94 + (opponentMetrics.basePlaymaking - 75) * 0.4, 86, 106)
+  const paceBlend = clamp((pace + opponentPace) / 2, 86, 106)
+  const possessions = Math.round(paceBlend)
+
+  const prepOffenseBoost = includePrep ? prepFocus.offenseBoost * 0.35 : 0
+  const prepDefenseBoost = includePrep ? prepFocus.defenseBoost * 0.35 : 0
+  const prepVariance = includePrep ? prepFocus.varianceMultiplier : 1
+
+  const simulateSide = ({
+    teamMetrics,
+    opponentMetrics,
+    offenseFit,
+    defenseFit,
+    offenseSystem,
+    defenseSystem,
+    extraOffense,
+    extraDefense,
+  }: {
+    teamMetrics: ReturnType<typeof simulateMatchup>
+    opponentMetrics: ReturnType<typeof simulateMatchup>
+    offenseFit: number
+    defenseFit: number
+    offenseSystem: SystemProfile
+    defenseSystem: SystemProfile
+    extraOffense: number
+    extraDefense: number
+  }) => {
+    const offenseRating =
+      teamMetrics.offenseScore +
+      getCounterBonus(offenseSystem, defenseSystem) +
+      offenseFit * 0.9 +
+      extraOffense
+    const defenseRating =
+      opponentMetrics.defenseScore +
+      getCounterBonus(defenseSystem, offenseSystem) * 0.4 +
+      defenseFit * 0.6 +
+      extraDefense
+
+    const playmakingEdge = teamMetrics.basePlaymaking - opponentMetrics.baseDefense
+    const reboundingEdge = teamMetrics.baseRebounding - opponentMetrics.baseRebounding
+    const scoringEdge = offenseRating - defenseRating
+
+    const turnoverRate = clamp(0.135 - playmakingEdge * 0.0015 + defenseRating * 0.0004, 0.08, 0.2)
+    const threeRate = clamp(0.32 + teamMetrics.basePlaymaking * 0.0008 + offenseFit * 0.002, 0.24, 0.42)
+    const threeMake = clamp(0.33 + scoringEdge * 0.0012, 0.25, 0.43)
+    const twoMake = clamp(0.49 + scoringEdge * 0.0015 + offenseFit * 0.0008, 0.38, 0.62)
+    const offensiveReboundRate = clamp(0.22 + reboundingEdge * 0.002, 0.12, 0.32)
+    const putbackFinishRate = clamp(0.52 + scoringEdge * 0.0008, 0.42, 0.66)
+
+    let points = 0
+    for (let i = 0; i < possessions; i += 1) {
+      const turnoverCheck = Math.random()
+      if (turnoverCheck < turnoverRate) {
+        continue
+      }
+
+      const shotSelection = Math.random()
+      const isThree = shotSelection < threeRate
+      const makeCheck = Math.random()
+      const makeRate = isThree ? threeMake : twoMake
+
+      if (makeCheck < makeRate) {
+        points += isThree ? 3 : 2
+      } else {
+        const reboundCheck = Math.random()
+        if (reboundCheck < offensiveReboundRate) {
+          const putbackCheck = Math.random()
+          if (putbackCheck < putbackFinishRate) {
+            points += 2
+          }
+        }
+      }
+    }
+
+    const variance = (Math.random() - 0.5) * 8 * prepVariance
+    return points + variance
+  }
+
+  const projectedPoints = simulateSide({
+    teamMetrics: metrics,
+    opponentMetrics,
+    offenseFit: offenseStyleFit,
+    defenseFit: opponentDefenseFit,
+    offenseSystem,
+    defenseSystem: opponentDefense,
+    extraOffense: prepOffenseBoost,
+    extraDefense: 0,
+  })
+
+  const projectedOpponent = simulateSide({
+    teamMetrics: opponentMetrics,
+    opponentMetrics: metrics,
+    offenseFit: opponentOffenseFit,
+    defenseFit: defenseStyleFit,
+    offenseSystem: opponentOffense,
+    defenseSystem,
+    extraOffense: 0,
+    extraDefense: prepDefenseBoost,
+  })
+
+  return {
+    projectedPoints: clamp(projectedPoints, 78, 140),
+    projectedOpponent: clamp(projectedOpponent, 78, 140),
+    possessions,
+    paceBlend,
+  }
+}
+
 const counterMatrix: Record<string, Record<string, number>> = {
   '5 Out Motion Offense': {
     'Pack Line Defense': 2.4,
@@ -1816,6 +1980,10 @@ const simulateMatchup = (lineup: Player[], offenseSystem: SystemProfile, defense
 }
 
 const App = () => {
+  const [teamName, setTeamName] = useState(teamOptions[0])
+  const [activePage, setActivePage] = useState<
+    'team' | 'systems' | 'projection' | 'simulate' | 'details'
+  >('team')
   const [offenseSystem, setOffenseSystem] = useState(offensiveSystems[0])
   const [defenseSystem, setDefenseSystem] = useState(defensiveSystems[0])
   const [prepFocus, setPrepFocus] = useState(prepFocuses[0])
@@ -1828,6 +1996,11 @@ const App = () => {
   const [opponentRoster, setOpponentRoster] = useState<Player[]>(() => players.slice(8, 16))
   const [opponentOffense, setOpponentOffense] = useState(offensiveSystems[1])
   const [opponentDefense, setOpponentDefense] = useState(defensiveSystems[1])
+  const [previewOpponentRoster, setPreviewOpponentRoster] = useState<Player[]>(() =>
+    buildRandomRoster(players.slice(0, 8).map((player) => player.name), 5),
+  )
+  const [previewOpponentOffense, setPreviewOpponentOffense] = useState(offensiveSystems[2])
+  const [previewOpponentDefense, setPreviewOpponentDefense] = useState(defensiveSystems[0])
 
   const lineup = useMemo(() => selectedPlayers, [selectedPlayers])
 
@@ -1844,11 +2017,6 @@ const App = () => {
     })
   }
 
-  const buildRandomRoster = (excludeNames: string[], rosterSize = 8) => {
-    const available = players.filter((player) => !excludeNames.includes(player.name))
-    return shuffle(available).slice(0, rosterSize)
-  }
-
   const handleRandomizeOpponent = () => {
     const roster = buildRandomRoster(selectedPlayers.map((player) => player.name))
     setOpponentRoster(roster)
@@ -1856,6 +2024,50 @@ const App = () => {
     setOpponentDefense(getRandomItem(defensiveSystems))
     setOpponentInfo('Opponent scouting report updated.')
   }
+
+  const handleRefreshPreview = () => {
+    const roster = buildRandomRoster(selectedPlayers.map((player) => player.name), 5)
+    setPreviewOpponentRoster(roster)
+    setPreviewOpponentOffense(getRandomItem(offensiveSystems))
+    setPreviewOpponentDefense(getRandomItem(defensiveSystems))
+  }
+
+  const previewProjection = useMemo(() => {
+    if (lineup.length < 5) {
+      return null
+    }
+
+    const { projectedPoints, projectedOpponent, paceBlend, possessions } = simulatePossessionGame({
+      lineup,
+      offenseSystem,
+      defenseSystem,
+      opponentRoster: previewOpponentRoster,
+      opponentOffense: previewOpponentOffense,
+      opponentDefense: previewOpponentDefense,
+      prepFocus,
+      includePrep: false,
+    })
+
+    const delta = projectedPoints - projectedOpponent
+    const winProbability = clamp(50 + delta * 1.6, 8, 92)
+
+    return {
+      projectedPoints,
+      projectedOpponent,
+      paceBlend,
+      possessions,
+      winProbability,
+      delta,
+    }
+  }, [
+    lineup,
+    offenseSystem,
+    defenseSystem,
+    previewOpponentRoster,
+    previewOpponentOffense,
+    previewOpponentDefense,
+    prepFocus,
+  ])
 
   const handleSimulate = () => {
     if (lineup.length < 5) {
@@ -1879,45 +2091,24 @@ const App = () => {
     const opponentOffenseFit = getOffenseStyleFit(opponentOffenseProfile, opponentOffense.playStyle)
     const opponentDefenseFit = getDefenseStyleFit(opponentDefenseProfile, opponentDefense.defenseStyle)
 
-    const pace = clamp(96 + (metrics.basePlaymaking - 75) * 0.4, 88, 106)
-    const opponentPace = clamp(96 + (opponentMetrics.basePlaymaking - 75) * 0.35, 88, 106)
-    const paceBlend = clamp((pace + opponentPace) / 2, 88, 106)
-
-    const variance = (Math.random() - 0.5) * 12 * prepFocus.varianceMultiplier
-    const opponentVariance = (Math.random() - 0.5) * 12
-
-    const offenseTotal =
-      metrics.offenseScore +
-      offenseCounter +
-      prepFocus.offenseBoost +
-      variance +
-      offenseStyleFit * 0.9
-    const defenseTotal =
-      metrics.defenseScore +
-      defenseCounter +
-      prepFocus.defenseBoost +
-      (Math.random() - 0.5) * 6 +
-      defenseStyleFit * 0.8
-
-    const opponentOffenseTotal =
-      opponentMetrics.offenseScore + getCounterBonus(opponentOffense, defenseSystem) + opponentVariance + opponentOffenseFit
-    const opponentDefenseTotal =
-      opponentMetrics.defenseScore +
-      getCounterBonus(offenseSystem, opponentDefense) * 0.6 +
-      (Math.random() - 0.5) * 4 +
-      opponentDefenseFit * 0.8
-
-    const netOffense = offenseTotal - opponentDefenseTotal * 0.55
-    const netDefense = defenseTotal - opponentOffenseTotal * 0.45
-
-    const projectedPoints = clamp(108 + netOffense + paceBlend * 0.5, 80, 140)
-    const projectedOpponent = clamp(108 - netDefense + paceBlend * 0.45, 78, 138)
+    const { projectedPoints, projectedOpponent, paceBlend, possessions } = simulatePossessionGame({
+      lineup,
+      offenseSystem,
+      defenseSystem,
+      opponentRoster,
+      opponentOffense,
+      opponentDefense,
+      prepFocus,
+      includePrep: true,
+    })
 
     const homeBoxScore = simulateBoxScore(lineup, opponentDefenseProfile, opponentOffenseProfile, paceBlend)
     const awayBoxScore = simulateBoxScore(opponentRoster, defenseProfile, offenseProfile, paceBlend)
 
     const summary = `Final Score Projection: ${projectedPoints.toFixed(0)} - ${projectedOpponent.toFixed(0)}`
-    const detail = `Prep: ${prepFocus.name} | Counter edge ${offenseCounter.toFixed(1)} | Pace ${paceBlend.toFixed(0)}`
+    const detail = `Prep: ${prepFocus.name} | Counter edge ${offenseCounter.toFixed(1)} | Pace ${
+      paceBlend.toFixed(0)
+    } (${possessions} poss)`
     const offenseDetail = `Offense cluster fit ${offenseStyleFit.toFixed(1)} | Defense cluster fit ${
       defenseStyleFit.toFixed(1)
     }`
@@ -1947,348 +2138,506 @@ const App = () => {
         </p>
       </header>
 
-      <section className="simulator">
-        <div className="simulator-panel">
-          <h2>One-Game Simulation</h2>
-          <p className="muted">
-            Build a roster of at least 5 from a 30+ player pool, pick a prep focus, and simulate against a randomized
-            opponent. Counter play and scouting matter, so rerun to test adjustments.
-          </p>
-          <div className="select-row">
+      <nav className="page-nav">
+        {[
+          { id: 'team', label: 'Team & Players' },
+          { id: 'systems', label: 'Offense & Defense' },
+          { id: 'projection', label: 'Live Projection' },
+          { id: 'simulate', label: 'Simulate Game' },
+          { id: 'details', label: 'Details' },
+        ].map((page) => (
+          <button
+            key={page.id}
+            type="button"
+            className={`page-tab ${activePage === page.id ? 'active' : ''}`}
+            onClick={() => setActivePage(page.id as typeof activePage)}
+          >
+            {page.label}
+          </button>
+        ))}
+      </nav>
+
+      {activePage === 'team' ? (
+        <section className="simulator">
+          <div className="simulator-panel">
+            <p className="step-label">Team setup</p>
+            <h2>Select your team</h2>
+            <p className="muted">Start with a team identity before building out the rotation.</p>
             <label>
-              Offensive System
-              <select
-                value={offenseSystem.name}
-                onChange={(event) =>
-                  setOffenseSystem(
-                    offensiveSystems.find((system) => system.name === event.target.value) ?? offensiveSystems[0],
-                  )
-                }
-              >
-                {offensiveSystems.map((system) => (
-                  <option key={system.name} value={system.name}>
-                    {system.name}
+              Team identity
+              <select value={teamName} onChange={(event) => setTeamName(event.target.value)}>
+                {teamOptions.map((team) => (
+                  <option key={team} value={team}>
+                    {team}
                   </option>
                 ))}
               </select>
             </label>
-            <label>
-              Defensive System
-              <select
-                value={defenseSystem.name}
-                onChange={(event) =>
-                  setDefenseSystem(
-                    defensiveSystems.find((system) => system.name === event.target.value) ?? defensiveSystems[0],
-                  )
-                }
-              >
-                {defensiveSystems.map((system) => (
-                  <option key={system.name} value={system.name}>
-                    {system.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Prep Focus
-              <select
-                value={prepFocus.name}
-                onChange={(event) =>
-                  setPrepFocus(prepFocuses.find((focus) => focus.name === event.target.value) ?? prepFocuses[0])
-                }
-              >
-                {prepFocuses.map((focus) => (
-                  <option key={focus.name} value={focus.name}>
-                    {focus.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="button-row">
-            <button className="primary" type="button" onClick={handleSimulate}>
-              Simulate Game
-            </button>
-            <button className="secondary" type="button" onClick={handleRandomizeOpponent}>
-              Randomize Opponent
-            </button>
-          </div>
-          {result ? <div className="result">{result}</div> : null}
-          {opponentInfo ? <div className="opponent-info">{opponentInfo}</div> : null}
-          <div className="log">
-            <h3>Latest simulation notes</h3>
-            {log.length === 0 ? (
-              <p className="muted">Run a simulation to generate a summary.</p>
-            ) : (
-              <ul>
-                {log.map((entry, index) => (
-                  <li key={`${entry}-${index}`}>{entry}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-          {boxScore ? (
-            <div className="box-score">
-              <h3>Simulated Box Score</h3>
-              <p className="muted">
-                Player outputs blend usage, performance ratings, and opponent scheme pressure. Rerun for new variance.
-              </p>
-              <div className="box-score-grid">
-                {[
-                  { title: 'Your Lineup', data: boxScore.home },
-                  { title: 'Opponent', data: boxScore.away },
-                ].map((group) => (
-                  <div key={group.title} className="box-score-card">
-                    <h4>{group.title}</h4>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Player</th>
-                          <th>MIN</th>
-                          <th>PTS</th>
-                          <th>REB</th>
-                          <th>AST</th>
-                          <th>STL</th>
-                          <th>BLK</th>
-                          <th>TOV</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.data.lines.map((line) => (
-                          <tr key={`${group.title}-${line.name}`}>
-                            <td>{line.name}</td>
-                            <td>{line.minutes}</td>
-                            <td>{line.points}</td>
-                            <td>{line.rebounds}</td>
-                            <td>{line.assists}</td>
-                            <td>{line.steals}</td>
-                            <td>{line.blocks}</td>
-                            <td>{line.turnovers}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr>
-                          <td>{group.data.totals.name}</td>
-                          <td>{group.data.totals.minutes}</td>
-                          <td>{group.data.totals.points}</td>
-                          <td>{group.data.totals.rebounds}</td>
-                          <td>{group.data.totals.assists}</td>
-                          <td>{group.data.totals.steals}</td>
-                          <td>{group.data.totals.blocks}</td>
-                          <td>{group.data.totals.turnovers}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                ))}
-              </div>
+            <div className="team-summary">
+              <span className="badge">{teamName}</span>
+              <span className="muted">Selected players: {lineup.length} / 10</span>
             </div>
-          ) : null}
-        </div>
-
-        <div className="simulator-panel">
-          <h2>Roster Builder</h2>
-          <p className="muted">
-            Select up to 10 players from the pool. Aim for at least 5 to generate a matchup and balance roles for
-            counters.
-          </p>
-          <div className="roster-summary">
-            <span>Selected: {lineup.length} players</span>
-            <span className="muted">Pool size: {players.length} players</span>
           </div>
-          <div className="roster-grid">
-            {players.map((player) => {
-              const isSelected = lineup.some((item) => item.name === player.name)
-              const offenseProfile = buildOffensiveProfile(player)
-              const defenseProfile = buildDefensiveProfile(player)
-              const offenseRating = getOffenseClusterRating(offenseProfile)
-              const defenseRating = getDefenseClusterRating(defenseProfile)
-              return (
-                <button
-                  key={player.name}
-                  type="button"
-                  className={`roster-card ${isSelected ? 'selected' : ''}`}
-                  onClick={() => togglePlayer(player)}
+
+          <div className="simulator-panel">
+            <p className="step-label">Roster build</p>
+            <h2>Select players</h2>
+            <p className="muted">
+              Select up to 10 players from the pool. Aim for at least 5 to generate a matchup and balance roles for
+              counters.
+            </p>
+            <div className="roster-summary">
+              <span>Selected: {lineup.length} players</span>
+              <span className="muted">Pool size: {players.length} players</span>
+            </div>
+            <div className="roster-grid">
+              {players.map((player) => {
+                const isSelected = lineup.some((item) => item.name === player.name)
+                const offenseProfile = buildOffensiveProfile(player)
+                const defenseProfile = buildDefensiveProfile(player)
+                const offenseRating = getOffenseClusterRating(offenseProfile)
+                const defenseRating = getDefenseClusterRating(defenseProfile)
+                return (
+                  <button
+                    key={player.name}
+                    type="button"
+                    className={`roster-card ${isSelected ? 'selected' : ''}`}
+                    onClick={() => togglePlayer(player)}
+                  >
+                    <div className="roster-card-header">
+                      <h3>{player.name}</h3>
+                      <span className="badge">{player.position}</span>
+                    </div>
+                    <p className="muted">{player.role}</p>
+                    <div className="profile-tags">
+                      <span className="profile-chip">Off: {player.offenseProfileKey}</span>
+                      <span className="profile-chip">Def: {player.defenseProfileKey}</span>
+                    </div>
+                    <div className="roster-stats">
+                      <span>Off {player.offense}</span>
+                      <span>Def {player.defense}</span>
+                      <span>Play {player.playmaking}</span>
+                      <span>O-OVR {offenseRating.toFixed(0)}</span>
+                      <span>D-OVR {defenseRating.toFixed(0)}</span>
+                    </div>
+                    <div className="profile-micro">
+                      {getTopOffenseTraits(offenseProfile).map((trait) => (
+                        <span key={trait}>{trait}</span>
+                      ))}
+                    </div>
+                    <div className="profile-micro">
+                      {getDefenseHighlights(defenseProfile).map((trait) => (
+                        <span key={trait}>{trait}</span>
+                      ))}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {activePage === 'systems' ? (
+        <section className="simulator">
+          <div className="simulator-panel">
+            <p className="step-label">Systems</p>
+            <h2>Build offense & defense</h2>
+            <p className="muted">Pick a scheme pair that matches your roster profile.</p>
+            <div className="select-row">
+              <label>
+                Offensive System
+                <select
+                  value={offenseSystem.name}
+                  onChange={(event) =>
+                    setOffenseSystem(
+                      offensiveSystems.find((system) => system.name === event.target.value) ?? offensiveSystems[0],
+                    )
+                  }
                 >
-                  <div className="roster-card-header">
-                    <h3>{player.name}</h3>
-                    <span className="badge">{player.position}</span>
-                  </div>
-                  <p className="muted">{player.role}</p>
-                  <div className="profile-tags">
-                    <span className="profile-chip">Off: {player.offenseProfileKey}</span>
-                    <span className="profile-chip">Def: {player.defenseProfileKey}</span>
-                  </div>
-                  <div className="roster-stats">
-                    <span>Off {player.offense}</span>
-                    <span>Def {player.defense}</span>
-                    <span>Play {player.playmaking}</span>
-                    <span>O-OVR {offenseRating.toFixed(0)}</span>
-                    <span>D-OVR {defenseRating.toFixed(0)}</span>
-                  </div>
-                  <div className="profile-micro">
-                    {getTopOffenseTraits(offenseProfile).map((trait) => (
-                      <span key={trait}>{trait}</span>
-                    ))}
-                  </div>
-                  <div className="profile-micro">
-                    {getDefenseHighlights(defenseProfile).map((trait) => (
-                      <span key={trait}>{trait}</span>
-                    ))}
-                  </div>
-                </button>
-              )
-            })}
+                  {offensiveSystems.map((system) => (
+                    <option key={system.name} value={system.name}>
+                      {system.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Defensive System
+                <select
+                  value={defenseSystem.name}
+                  onChange={(event) =>
+                    setDefenseSystem(
+                      defensiveSystems.find((system) => system.name === event.target.value) ?? defensiveSystems[0],
+                    )
+                  }
+                >
+                  {defensiveSystems.map((system) => (
+                    <option key={system.name} value={system.name}>
+                      {system.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <section className="simulator">
-        <div className="simulator-panel">
-          <h2>Your Lineup Roles & Fit</h2>
-          <p className="muted">Player cards are selectable. Adjust roles and lineups to maximize system synergy.</p>
-          <div className="lineup">
-            {lineup.map((player) => {
-              const offenseProfile = buildOffensiveProfile(player)
-              const defenseProfile = buildDefensiveProfile(player)
-              const offenseRating = getOffenseClusterRating(offenseProfile)
-              const defenseRating = getDefenseClusterRating(defenseProfile)
-              return (
-                <div key={player.name} className="player-card">
+          <div className="simulator-panel">
+            <h2>System fit snapshot</h2>
+            <p className="muted">Keep an eye on lineup roles that fit your chosen schemes.</p>
+            <div className="lineup">
+              {lineup.map((player) => (
+                <div key={player.name} className="player-card compact">
                   <div className="player-header">
                     <div>
                       <h3>{player.name}</h3>
                       <span className="badge">{player.position}</span>
-                      <span className="badge badge-secondary">{player.role}</span>
                     </div>
                     <div className="rating">{Math.round((player.offense + player.defense) / 2)}</div>
                   </div>
-                  <div className="stats">
-                    <div>
-                      <strong>Off</strong> {player.offense}
-                    </div>
-                    <div>
-                      <strong>Def</strong> {player.defense}
-                    </div>
-                    <div>
-                      <strong>Play</strong> {player.playmaking}
-                    </div>
-                    <div>
-                      <strong>Reb</strong> {player.rebounding}
-                    </div>
-                    <div>
-                      <strong>Sta</strong> {player.stamina}
-                    </div>
-                    <div>
-                      <strong>O-OVR</strong> {offenseRating.toFixed(0)}
-                    </div>
-                    <div>
-                      <strong>D-OVR</strong> {defenseRating.toFixed(0)}
-                    </div>
-                  </div>
-                  <div className="profile-tags">
-                    <span className="profile-chip">Offense Cluster: {player.offenseProfileKey}</span>
-                    <span className="profile-chip">Defense Cluster: {player.defenseProfileKey}</span>
-                  </div>
-                  <div className="profile-grid">
-                    <div>
-                      <h4>Offensive profile</h4>
-                      <ul>
-                        {getTopOffenseTraits(offenseProfile).map((trait) => (
-                          <li key={trait}>{trait}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div>
-                      <h4>Defensive profile</h4>
-                      <ul>
-                        {getDefenseHighlights(defenseProfile).map((trait) => (
-                          <li key={trait}>{trait}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
                   <div className="meta">
-                    <span>Fav areas: {player.favoriteAreas.join(', ')}</span>
+                    <span>Role: {player.role}</span>
                     <span>System fit: {player.systemsFit.join(', ')}</span>
                   </div>
                 </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="simulator-panel">
-          <h2>Opponent Snapshot</h2>
-          <p className="muted">Opponent systems are randomized, so scouting and prep change the outcome.</p>
-          <div className="opponent-card">
-            <h3>{opponentOffense.name}</h3>
-            <p className="muted">Defense: {opponentDefense.name}</p>
-            <div className="opponent-roster">
-              {opponentRoster.map((player) => (
-                <span key={player.name} className="pill">
-                  {player.name}
-                </span>
               ))}
             </div>
           </div>
-          <div className="prep-notes">
-            {prepFocuses.map((focus) => (
-              <div key={focus.name} className={`prep-card ${prepFocus.name === focus.name ? 'active' : ''}`}>
-                <h4>{focus.name}</h4>
-                <p>{focus.description}</p>
+        </section>
+      ) : null}
+
+      {activePage === 'projection' ? (
+        <section className="simulator">
+          <div className="simulator-panel">
+            <div className="projection-header">
+              <div>
+                <p className="step-label">Live projection</p>
+                <h2>Projected matchup vs random 5-team</h2>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="overview">
-        <div className="overview-card">
-          <h2>Clustering methodology</h2>
-          <ul>
-            <li>Offense clustering uses usage, assist, and play-type frequencies converted to a 1-99 scale.</li>
-            <li>Defense clustering uses DPM, deflections, rebounding, steals, blocks, versatility, and matchup load on a 1-99 scale.</li>
-            <li>Players can technically run any action, but their 1-99 cluster profile shapes the simulation outcome.</li>
-            <li>Prep focus and counters let you tilt outcomes by leaning into strengths and covering weaknesses.</li>
-          </ul>
-        </div>
-        <div className="overview-card">
-          <h2>Simulation focus</h2>
-          <ul>
-            <li>Use the terminology to drive play selection, shot quality, and matchup outcomes.</li>
-            <li>Track player favorite areas (corner, wing, high post) to influence spacing and shot charts.</li>
-            <li>Blend offensive actions with defensive counters to mirror NBA complexity.</li>
-            <li>Scale the same tags into season-long fatigue, morale, and consistency modifiers.</li>
-          </ul>
-        </div>
-      </section>
-
-      <section className="grid">
-        {categories.map((category) => (
-          <details key={category.title} className="card">
-            <summary>
-              <span>{category.title}</span>
-              <span className="count">{category.sections.reduce((total, section) => total + section.terms.length, 0)} terms</span>
-            </summary>
-            <div className="card-body">
-              {category.sections.map((section) => (
-                <div key={section.title} className="section">
-                  <h3>{section.title}</h3>
-                  <div className="terms">
-                    {section.terms.map((term) => (
-                      <span key={term} className="pill">
-                        {term}
+              <button className="secondary" type="button" onClick={handleRefreshPreview}>
+                New random 5-team
+              </button>
+            </div>
+            {previewProjection ? (
+              <div className="projection-card">
+                <div className="projection-score">
+                  <div>
+                    <span className="projection-label">{teamName}</span>
+                    <strong>{previewProjection.projectedPoints.toFixed(0)}</strong>
+                  </div>
+                  <span className="projection-divider">vs</span>
+                  <div>
+                    <span className="projection-label">Random 5</span>
+                    <strong>{previewProjection.projectedOpponent.toFixed(0)}</strong>
+                  </div>
+                </div>
+                <div className="projection-meta">
+                  <span>
+                    Projected pace: {previewProjection.paceBlend.toFixed(0)} ({previewProjection.possessions} poss)
+                  </span>
+                  <span>
+                    Win chance: {previewProjection.winProbability.toFixed(0)}% ({previewProjection.delta.toFixed(1)} net)
+                  </span>
+                </div>
+                <div className="projection-opponent">
+                  <p className="muted">
+                    Opponent systems: {previewOpponentOffense.name} / {previewOpponentDefense.name}
+                  </p>
+                  <div className="opponent-roster">
+                    {previewOpponentRoster.map((player) => (
+                      <span key={player.name} className="pill">
+                        {player.name}
                       </span>
                     ))}
                   </div>
                 </div>
-              ))}
+              </div>
+            ) : (
+              <p className="muted">Select at least five players to unlock a live projection.</p>
+            )}
+          </div>
+
+          <div className="simulator-panel">
+            <h2>Projection checklist</h2>
+            <ul className="checklist">
+              <li>Minimum 5 players selected.</li>
+              <li>Offense and defense systems chosen.</li>
+              <li>Refresh for a new random 5-team preview.</li>
+            </ul>
+          </div>
+        </section>
+      ) : null}
+
+      {activePage === 'simulate' ? (
+        <section className="simulator">
+          <div className="simulator-panel">
+            <p className="step-label">Game sim</p>
+            <h2>Simulate the game</h2>
+            <p className="muted">
+              Lock in a prep focus, then run the full game sim with scouting, counters, and box score variance.
+            </p>
+            <div className="select-row">
+              <label>
+                Prep Focus
+                <select
+                  value={prepFocus.name}
+                  onChange={(event) =>
+                    setPrepFocus(prepFocuses.find((focus) => focus.name === event.target.value) ?? prepFocuses[0])
+                  }
+                >
+                  {prepFocuses.map((focus) => (
+                    <option key={focus.name} value={focus.name}>
+                      {focus.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-          </details>
-        ))}
-      </section>
+            <div className="button-row">
+              <button className="primary" type="button" onClick={handleSimulate}>
+                Simulate Game
+              </button>
+              <button className="secondary" type="button" onClick={handleRandomizeOpponent}>
+                Randomize Opponent
+              </button>
+            </div>
+            {result ? <div className="result">{result}</div> : null}
+            {opponentInfo ? <div className="opponent-info">{opponentInfo}</div> : null}
+            <div className="log">
+              <h3>Latest simulation notes</h3>
+              {log.length === 0 ? (
+                <p className="muted">Run a simulation to generate a summary.</p>
+              ) : (
+                <ul>
+                  {log.map((entry, index) => (
+                    <li key={`${entry}-${index}`}>{entry}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {boxScore ? (
+              <div className="box-score">
+                <h3>Simulated Box Score</h3>
+                <p className="muted">
+                  Player outputs blend usage, performance ratings, and opponent scheme pressure. Rerun for new variance.
+                </p>
+                <div className="box-score-grid">
+                  {[
+                    { title: 'Your Lineup', data: boxScore.home },
+                    { title: 'Opponent', data: boxScore.away },
+                  ].map((group) => (
+                    <div key={group.title} className="box-score-card">
+                      <h4>{group.title}</h4>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Player</th>
+                            <th>MIN</th>
+                            <th>PTS</th>
+                            <th>REB</th>
+                            <th>AST</th>
+                            <th>STL</th>
+                            <th>BLK</th>
+                            <th>TOV</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.data.lines.map((line) => (
+                            <tr key={`${group.title}-${line.name}`}>
+                              <td>{line.name}</td>
+                              <td>{line.minutes}</td>
+                              <td>{line.points}</td>
+                              <td>{line.rebounds}</td>
+                              <td>{line.assists}</td>
+                              <td>{line.steals}</td>
+                              <td>{line.blocks}</td>
+                              <td>{line.turnovers}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td>{group.data.totals.name}</td>
+                            <td>{group.data.totals.minutes}</td>
+                            <td>{group.data.totals.points}</td>
+                            <td>{group.data.totals.rebounds}</td>
+                            <td>{group.data.totals.assists}</td>
+                            <td>{group.data.totals.steals}</td>
+                            <td>{group.data.totals.blocks}</td>
+                            <td>{group.data.totals.turnovers}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {activePage === 'details' ? (
+        <>
+          <section className="simulator">
+            <div className="simulator-panel">
+              <h2>Your Lineup Roles & Fit</h2>
+              <p className="muted">Player cards are selectable. Adjust roles and lineups to maximize system synergy.</p>
+              <div className="lineup">
+                {lineup.map((player) => {
+                  const offenseProfile = buildOffensiveProfile(player)
+                  const defenseProfile = buildDefensiveProfile(player)
+                  const offenseRating = getOffenseClusterRating(offenseProfile)
+                  const defenseRating = getDefenseClusterRating(defenseProfile)
+                  return (
+                    <div key={player.name} className="player-card">
+                      <div className="player-header">
+                        <div>
+                          <h3>{player.name}</h3>
+                          <span className="badge">{player.position}</span>
+                          <span className="badge badge-secondary">{player.role}</span>
+                        </div>
+                        <div className="rating">{Math.round((player.offense + player.defense) / 2)}</div>
+                      </div>
+                      <div className="stats">
+                        <div>
+                          <strong>Off</strong> {player.offense}
+                        </div>
+                        <div>
+                          <strong>Def</strong> {player.defense}
+                        </div>
+                        <div>
+                          <strong>Play</strong> {player.playmaking}
+                        </div>
+                        <div>
+                          <strong>Reb</strong> {player.rebounding}
+                        </div>
+                        <div>
+                          <strong>Sta</strong> {player.stamina}
+                        </div>
+                        <div>
+                          <strong>O-OVR</strong> {offenseRating.toFixed(0)}
+                        </div>
+                        <div>
+                          <strong>D-OVR</strong> {defenseRating.toFixed(0)}
+                        </div>
+                      </div>
+                      <div className="profile-tags">
+                        <span className="profile-chip">Offense Cluster: {player.offenseProfileKey}</span>
+                        <span className="profile-chip">Defense Cluster: {player.defenseProfileKey}</span>
+                      </div>
+                      <div className="profile-grid">
+                        <div>
+                          <h4>Offensive profile</h4>
+                          <ul>
+                            {getTopOffenseTraits(offenseProfile).map((trait) => (
+                              <li key={trait}>{trait}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <h4>Defensive profile</h4>
+                          <ul>
+                            {getDefenseHighlights(defenseProfile).map((trait) => (
+                              <li key={trait}>{trait}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                      <div className="meta">
+                        <span>Fav areas: {player.favoriteAreas.join(', ')}</span>
+                        <span>System fit: {player.systemsFit.join(', ')}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="simulator-panel">
+              <h2>Opponent Snapshot</h2>
+              <p className="muted">Opponent systems are randomized, so scouting and prep change the outcome.</p>
+              <div className="opponent-card">
+                <h3>{opponentOffense.name}</h3>
+                <p className="muted">Defense: {opponentDefense.name}</p>
+                <div className="opponent-roster">
+                  {opponentRoster.map((player) => (
+                    <span key={player.name} className="pill">
+                      {player.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="simulator">
+            <div className="simulator-panel">
+              <h2>Prep Focus Notes</h2>
+              <p className="muted">See what each focus emphasizes and how it shifts your simulation edge.</p>
+              <div className="prep-notes">
+                {prepFocuses.map((focus) => (
+                  <div key={focus.name} className={`prep-card ${prepFocus.name === focus.name ? 'active' : ''}`}>
+                    <h4>{focus.name}</h4>
+                    <p>{focus.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="simulator-panel">
+              <h2>Clustering methodology</h2>
+              <ul>
+                <li>Offense clustering uses usage, assist, and play-type frequencies converted to a 1-99 scale.</li>
+                <li>Defense clustering uses DPM, deflections, rebounding, steals, blocks, versatility, and matchup load on a 1-99 scale.</li>
+                <li>Players can technically run any action, but their 1-99 cluster profile shapes the simulation outcome.</li>
+                <li>Prep focus and counters let you tilt outcomes by leaning into strengths and covering weaknesses.</li>
+              </ul>
+            </div>
+          </section>
+
+          <section className="simulator">
+            <div className="simulator-panel">
+              <h2>Simulation focus</h2>
+              <ul>
+                <li>Use the terminology to drive play selection, shot quality, and matchup outcomes.</li>
+                <li>Track player favorite areas (corner, wing, high post) to influence spacing and shot charts.</li>
+                <li>Blend offensive actions with defensive counters to mirror NBA complexity.</li>
+                <li>Scale the same tags into season-long fatigue, morale, and consistency modifiers.</li>
+              </ul>
+            </div>
+
+            <div className="simulator-panel">
+              <h2>Term categories</h2>
+              <div className="grid">
+                {categories.map((category) => (
+                  <details key={category.title} className="card">
+                    <summary>
+                      <span>{category.title}</span>
+                      <span className="count">{category.sections.reduce((total, section) => total + section.terms.length, 0)} terms</span>
+                    </summary>
+                    <div className="card-body">
+                      {category.sections.map((section) => (
+                        <div key={section.title} className="section">
+                          <h3>{section.title}</h3>
+                          <div className="terms">
+                            {section.terms.map((term) => (
+                              <span key={term} className="pill">
+                                {term}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </div>
+          </section>
+        </>
+      ) : null}
+
     </div>
   )
 }
