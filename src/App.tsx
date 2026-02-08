@@ -1,2645 +1,523 @@
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+
+type ShotType = 'rim' | 'mid' | 'three'
+type CreationType = 'pnr' | 'transition' | 'iso' | 'post' | 'motion'
+
+type OffenseStyle = '5-Out' | 'Pace & Space' | 'Balanced' | 'Inside-Out'
+type DefenseStyle = 'Switch' | 'Drop' | 'Zone' | 'Pressure'
 
 type Player = {
   name: string
-  position: string
-  role: string
+  pos: 'PG' | 'SG' | 'SF' | 'PF' | 'C'
   offense: number
   defense: number
   playmaking: number
   rebounding: number
-  stamina: number
-  favoriteAreas: string[]
-  systemsFit: string[]
-  offenseProfileKey: OffensiveProfileKey
-  defenseProfileKey: DefensiveProfileKey
+  usage: number
+  rim: number
+  mid: number
+  three: number
+  creation: Record<CreationType, number>
 }
 
-type SystemProfile = {
+type TeamTemplate = {
+  id: string
   name: string
-  offenseWeight: number
-  defenseWeight: number
-  playmakingWeight: number
-  reboundingWeight: number
-  spacingBonusAreas: string[]
-  roleNeeds: string[]
+  coachOff: number
+  coachDef: number
+  pace: number
+  roster: Player[]
+  offenseFit: Record<OffenseStyle, number>
+  defenseFit: Record<DefenseStyle, number>
 }
 
-type PrepFocus = {
+type PregameSide = {
+  teamId: string
+  offenseStyle: OffenseStyle
+  defenseStyle: DefenseStyle
+  shotMix: Record<ShotType, number>
+  primaryScorer: string
+  secondaryScorer: string
+  creationFocus: CreationType
+}
+
+type PlayerLine = {
   name: string
-  description: string
-  offenseBoost: number
-  defenseBoost: number
-  counterBoost: number
-  varianceMultiplier: number
+  pos: Player['pos']
+  min: number
+  pts: number
+  reb: number
+  ast: number
+  stl: number
+  blk: number
+  tov: number
+  fgm: number
+  fga: number
+  tpm: number
+  tpa: number
 }
 
-type OffensiveProfileKey =
-  | 'Spot Up Shooter'
-  | 'Secondary Ball Handler'
-  | 'Primary Ball Handler'
-  | 'Rollman'
-  | 'Versatile Big'
-  | 'Movement Ball Handler'
-  | 'Movement Shooter'
-  | 'Connector'
-
-type DefensiveProfileKey =
-  | 'Rim Protector'
-  | 'On-Ball Guard'
-  | 'Versatile Wing'
-  | 'Switch Big'
-  | 'Help Defender'
-
-type OffensiveProfileRaw = {
-  usageRate: number
-  assistRate: number
-  pickAndRollBallHandler: number
-  rollMan: number
-  spotUp: number
-  postUp: number
-  isolation: number
-  handoff: number
-  cut: number
-  offScreen: number
-  putback: number
-  transition: number
+type TeamResult = {
+  name: string
+  score: number
+  lines: PlayerLine[]
 }
 
-type DefensiveProfileRaw = {
-  craftedDpm: number
-  deflections: number
-  defensiveReboundRate: number
-  stealRate: number
-  blockRate: number
-  versatility: number
-  matchupDifficulty: number
-  guarding: {
-    dpg: number
-    dsg: number
-    dsf: number
-    dpf: number
-    dc: number
+type GameResult = {
+  away: TeamResult
+  home: TeamResult
+  log: string[]
+}
+
+type PlayerRoles = {
+  offenseRole: string
+  defenseRole: string
+  offenseFit: number
+  defenseFit: number
+}
+
+const offenseStyles: OffenseStyle[] = ['5-Out', 'Pace & Space', 'Balanced', 'Inside-Out']
+const defenseStyles: DefenseStyle[] = ['Switch', 'Drop', 'Zone', 'Pressure']
+const creationTypes: CreationType[] = ['pnr', 'transition', 'iso', 'post', 'motion']
+
+const teams: TeamTemplate[] = [
+  {
+    id: 'monarchs',
+    name: 'Metro Monarchs',
+    coachOff: 84,
+    coachDef: 80,
+    pace: 100,
+    offenseFit: { '5-Out': 88, 'Pace & Space': 86, Balanced: 82, 'Inside-Out': 76 },
+    defenseFit: { Switch: 84, Drop: 78, Zone: 74, Pressure: 81 },
+    roster: [
+      { name: 'Jalen Cross', pos: 'PG', offense: 87, defense: 75, playmaking: 91, rebounding: 50, usage: 28, rim: 79, mid: 74, three: 83, creation: { pnr: 92, transition: 84, iso: 81, post: 38, motion: 78 } },
+      { name: 'Tyrese Bloom', pos: 'SG', offense: 84, defense: 78, playmaking: 72, rebounding: 56, usage: 24, rim: 77, mid: 79, three: 85, creation: { pnr: 66, transition: 81, iso: 77, post: 42, motion: 84 } },
+      { name: 'Malik Voss', pos: 'SF', offense: 80, defense: 82, playmaking: 70, rebounding: 65, usage: 19, rim: 76, mid: 78, three: 79, creation: { pnr: 58, transition: 76, iso: 72, post: 61, motion: 75 } },
+      { name: 'Andre Pike', pos: 'PF', offense: 78, defense: 84, playmaking: 62, rebounding: 80, usage: 16, rim: 81, mid: 71, three: 72, creation: { pnr: 54, transition: 69, iso: 58, post: 73, motion: 62 } },
+      { name: 'Dorian Slate', pos: 'C', offense: 76, defense: 88, playmaking: 58, rebounding: 89, usage: 13, rim: 84, mid: 64, three: 40, creation: { pnr: 62, transition: 57, iso: 44, post: 80, motion: 49 } },
+    ],
+  },
+  {
+    id: 'waves',
+    name: 'Harbor City Waves',
+    coachOff: 81,
+    coachDef: 85,
+    pace: 98,
+    offenseFit: { '5-Out': 78, 'Pace & Space': 81, Balanced: 84, 'Inside-Out': 85 },
+    defenseFit: { Switch: 79, Drop: 88, Zone: 82, Pressure: 77 },
+    roster: [
+      { name: 'Noah Lane', pos: 'PG', offense: 82, defense: 79, playmaking: 87, rebounding: 48, usage: 27, rim: 74, mid: 79, three: 81, creation: { pnr: 90, transition: 79, iso: 78, post: 35, motion: 74 } },
+      { name: 'Kobe Hale', pos: 'SG', offense: 87, defense: 74, playmaking: 68, rebounding: 53, usage: 26, rim: 82, mid: 81, three: 86, creation: { pnr: 70, transition: 85, iso: 85, post: 45, motion: 77 } },
+      { name: 'Jace Rowan', pos: 'SF', offense: 79, defense: 83, playmaking: 69, rebounding: 66, usage: 18, rim: 77, mid: 75, three: 78, creation: { pnr: 58, transition: 75, iso: 73, post: 62, motion: 72 } },
+      { name: 'Micah Stone', pos: 'PF', offense: 77, defense: 85, playmaking: 60, rebounding: 84, usage: 15, rim: 80, mid: 70, three: 68, creation: { pnr: 49, transition: 67, iso: 57, post: 75, motion: 58 } },
+      { name: 'Eli Ward', pos: 'C', offense: 74, defense: 87, playmaking: 55, rebounding: 90, usage: 14, rim: 83, mid: 62, three: 38, creation: { pnr: 60, transition: 55, iso: 42, post: 82, motion: 46 } },
+    ],
+  },
+  {
+    id: 'peaks',
+    name: 'Summit Peaks',
+    coachOff: 86,
+    coachDef: 77,
+    pace: 103,
+    offenseFit: { '5-Out': 85, 'Pace & Space': 90, Balanced: 80, 'Inside-Out': 73 },
+    defenseFit: { Switch: 81, Drop: 71, Zone: 74, Pressure: 85 },
+    roster: [
+      { name: 'Aiden Frost', pos: 'PG', offense: 88, defense: 72, playmaking: 90, rebounding: 47, usage: 29, rim: 81, mid: 78, three: 84, creation: { pnr: 93, transition: 88, iso: 84, post: 32, motion: 78 } },
+      { name: 'Blaine Knox', pos: 'SG', offense: 85, defense: 73, playmaking: 70, rebounding: 52, usage: 25, rim: 79, mid: 80, three: 87, creation: { pnr: 64, transition: 83, iso: 82, post: 41, motion: 82 } },
+      { name: 'Cyrus Vale', pos: 'SF', offense: 81, defense: 79, playmaking: 72, rebounding: 64, usage: 18, rim: 78, mid: 76, three: 80, creation: { pnr: 60, transition: 78, iso: 74, post: 58, motion: 76 } },
+      { name: 'Dane Oak', pos: 'PF', offense: 76, defense: 80, playmaking: 59, rebounding: 82, usage: 15, rim: 79, mid: 69, three: 67, creation: { pnr: 51, transition: 70, iso: 55, post: 74, motion: 55 } },
+      { name: 'Evan Ridge', pos: 'C', offense: 73, defense: 83, playmaking: 54, rebounding: 88, usage: 13, rim: 82, mid: 60, three: 36, creation: { pnr: 58, transition: 54, iso: 39, post: 81, motion: 44 } },
+    ],
+  },
+]
+
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
+const avg = (n: number[]) => n.reduce((a, b) => a + b, 0) / n.length
+
+const pickWeighted = <T,>(items: T[], w: (x: T) => number): T => {
+  const total = items.reduce((sum, item) => sum + Math.max(0.01, w(item)), 0)
+  let roll = Math.random() * total
+  for (const item of items) {
+    roll -= Math.max(0.01, w(item))
+    if (roll <= 0) return item
+  }
+  return items[items.length - 1]
+}
+
+const normalizeMix = (mix: Record<ShotType, number>) => {
+  const total = mix.rim + mix.mid + mix.three
+  if (total <= 0) return { rim: 34, mid: 30, three: 36 }
+  return { rim: (mix.rim / total) * 100, mid: (mix.mid / total) * 100, three: (mix.three / total) * 100 }
+}
+
+function getPlayerRoles(player: Player, side: PregameSide): PlayerRoles {
+  const creatorSkill = player.creation[side.creationFocus]
+  const shotBest = Math.max(player.rim, player.mid, player.three)
+
+  let offenseRole = 'Connector'
+  if (player.name === side.primaryScorer) offenseRole = 'Primary Option'
+  else if (player.name === side.secondaryScorer) offenseRole = 'Secondary Option'
+  else if (creatorSkill >= 82 || player.playmaking >= 85) offenseRole = 'Creator'
+  else if (player.three >= 82 && side.offenseStyle === '5-Out') offenseRole = 'Spacer'
+  else if (player.rim >= 82 && side.offenseStyle === 'Inside-Out') offenseRole = 'Interior Finisher'
+  else if (player.rebounding >= 84) offenseRole = 'Glass Cleaner'
+
+  let defenseRole = 'Team Helper'
+  if (player.defense >= 86 && player.pos === 'C') defenseRole = 'Rim Protector'
+  else if (player.defense >= 82 && ['SF', 'PF'].includes(player.pos)) defenseRole = 'Wing Stopper'
+  else if (player.defense >= 80 && ['PG', 'SG'].includes(player.pos)) defenseRole = 'Point-of-Attack'
+  else if (player.rebounding >= 84) defenseRole = 'Defensive Rebounder'
+
+  const offenseFit = clamp((player.offense + player.playmaking + shotBest + creatorSkill) / 4, 50, 99)
+  const defenseFit = clamp((player.defense + player.rebounding + (player.pos === 'C' ? 4 : 0)) / 2, 50, 99)
+
+  return { offenseRole, defenseRole, offenseFit, defenseFit }
+}
+
+const shotTypeFromMix = (mix: Record<ShotType, number>, oppDefenseStyle: DefenseStyle): ShotType => {
+  const adjusted = { ...mix }
+  if (oppDefenseStyle === 'Drop') {
+    adjusted.three += 6
+    adjusted.rim -= 4
+  }
+  if (oppDefenseStyle === 'Zone') {
+    adjusted.three += 4
+    adjusted.mid += 4
+    adjusted.rim -= 6
+  }
+  const n = normalizeMix({ rim: clamp(adjusted.rim, 10, 70), mid: clamp(adjusted.mid, 10, 55), three: clamp(adjusted.three, 15, 65) })
+  const roll = Math.random() * 100
+  if (roll < n.rim) return 'rim'
+  if (roll < n.rim + n.mid) return 'mid'
+  return 'three'
+}
+
+function defaultSide(teamId: string): PregameSide {
+  const team = teams.find((t) => t.id === teamId) ?? teams[0]
+  return {
+    teamId,
+    offenseStyle: 'Balanced',
+    defenseStyle: 'Switch',
+    shotMix: { rim: 35, mid: 25, three: 40 },
+    primaryScorer: team.roster[0].name,
+    secondaryScorer: team.roster[1].name,
+    creationFocus: 'pnr',
   }
 }
 
-type OffensiveProfile = {
-  usageRate: number
-  assistRate: number
-  pickAndRollBallHandler: number
-  rollMan: number
-  spotUp: number
-  postUp: number
-  isolation: number
-  handoff: number
-  cut: number
-  offScreen: number
-  putback: number
-  transition: number
-}
+function simulateGame(awaySide: PregameSide, homeSide: PregameSide): GameResult {
+  const away = teams.find((t) => t.id === awaySide.teamId) ?? teams[0]
+  const home = teams.find((t) => t.id === homeSide.teamId) ?? teams[1]
 
-type DefensiveProfile = {
-  craftedDpm: number
-  deflections: number
-  defensiveReboundRate: number
-  stealRate: number
-  blockRate: number
-  versatility: number
-  matchupDifficulty: number
-  guarding: {
-    dpg: number
-    dsg: number
-    dsf: number
-    dpf: number
-    dc: number
+  const awayRoles = Object.fromEntries(away.roster.map((p) => [p.name, getPlayerRoles(p, awaySide)])) as Record<string, PlayerRoles>
+  const homeRoles = Object.fromEntries(home.roster.map((p) => [p.name, getPlayerRoles(p, homeSide)])) as Record<string, PlayerRoles>
+
+  const initLines = (team: TeamTemplate): Record<string, PlayerLine> =>
+    Object.fromEntries(team.roster.map((p) => [p.name, { name: p.name, pos: p.pos, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0 }]))
+
+  const awayLines = initLines(away)
+  const homeLines = initLines(home)
+
+  const awayOffBase = avg(away.roster.map((p) => p.offense)) + away.coachOff * 0.3
+  const homeOffBase = avg(home.roster.map((p) => p.offense)) + home.coachOff * 0.3
+  const awayDefBase = avg(away.roster.map((p) => p.defense)) + away.coachDef * 0.3
+  const homeDefBase = avg(home.roster.map((p) => p.defense)) + home.coachDef * 0.3
+
+  const awayRoleOff = avg(away.roster.map((p) => awayRoles[p.name].offenseFit))
+  const homeRoleOff = avg(home.roster.map((p) => homeRoles[p.name].offenseFit))
+  const awayRoleDef = avg(away.roster.map((p) => awayRoles[p.name].defenseFit))
+  const homeRoleDef = avg(home.roster.map((p) => homeRoles[p.name].defenseFit))
+
+  const awaySynergy = (away.offenseFit[awaySide.offenseStyle] + away.defenseFit[awaySide.defenseStyle]) / 2
+  const homeSynergy = (home.offenseFit[homeSide.offenseStyle] + home.defenseFit[homeSide.defenseStyle]) / 2
+
+  const gamePace = Math.round((away.pace + home.pace) / 2 + (Math.random() * 8 - 4))
+  const totalPossessions = gamePace * 2
+
+  let awayScore = 0
+  let homeScore = 0
+  let offense = 'away' as 'away' | 'home'
+  const log: string[] = []
+
+  const context = (side: 'away' | 'home') => {
+    if (side === 'away') {
+      return {
+        offenseTeam: away,
+        defenseTeam: home,
+        offSide: awaySide,
+        offRoles: awayRoles,
+        defRoles: homeRoles,
+        offLines: awayLines,
+        defLines: homeLines,
+        offBase: awayOffBase + awayRoleOff * 0.1,
+        defBase: homeDefBase + homeRoleDef * 0.1,
+        synergyOff: awaySynergy,
+        synergyDef: homeSynergy,
+      }
+    }
+    return {
+      offenseTeam: home,
+      defenseTeam: away,
+      offSide: homeSide,
+      offRoles: homeRoles,
+      defRoles: awayRoles,
+      offLines: homeLines,
+      defLines: awayLines,
+      offBase: homeOffBase + homeRoleOff * 0.1,
+      defBase: awayDefBase + awayRoleDef * 0.1,
+      synergyOff: homeSynergy,
+      synergyDef: awaySynergy,
+    }
   }
-}
 
-type OffenseStyle = {
-  pickAndRollBallHandler: number
-  rollMan: number
-  spotUp: number
-  postUp: number
-  isolation: number
-  handoff: number
-  cut: number
-  offScreen: number
-  putback: number
-  transition: number
-}
+  for (let i = 0; i < totalPossessions; i += 1) {
+    const c = context(offense)
+    const shotType = shotTypeFromMix(c.offSide.shotMix, offense === 'away' ? homeSide.defenseStyle : awaySide.defenseStyle)
 
-type DefenseStyle = {
-  rimProtection: number
-  perimeterPressure: number
-  switchability: number
-  rebounding: number
-  playDisruption: number
-}
+    const shooter = pickWeighted(c.offenseTeam.roster, (p) => {
+      const shotSkill = shotType === 'rim' ? p.rim : shotType === 'mid' ? p.mid : p.three
+      const role = c.offRoles[p.name]
+      const roleShare = role.offenseRole === 'Primary Option' ? 1.5 : role.offenseRole === 'Secondary Option' ? 1.25 : role.offenseRole === 'Creator' ? 1.12 : 1
+      return (8 + p.usage) * roleShare * (shotSkill / 100) * (0.75 + p.creation[c.offSide.creationFocus] / 100) * (role.offenseFit / 90)
+    })
 
-type BoxScoreLine = {
-  name: string
-  minutes: number
-  points: number
-  rebounds: number
-  assists: number
-  steals: number
-  blocks: number
-  turnovers: number
-}
+    const defender = pickWeighted(c.defenseTeam.roster, (p) => {
+      const role = c.defRoles[p.name]
+      const roleImpact = role.defenseRole === 'Rim Protector' && shotType === 'rim' ? 1.25 : role.defenseRole === 'Point-of-Attack' && c.offSide.creationFocus !== 'post' ? 1.15 : 1
+      return p.defense * roleImpact * (role.defenseFit / 90)
+    })
 
-type BoxScoreSummary = {
-  lines: BoxScoreLine[]
-  totals: BoxScoreLine
-}
+    c.offLines[shooter.name].min += 0.45
+    c.defLines[defender.name].min += 0.45
 
-const offensiveSystems: (SystemProfile & { playStyle: OffenseStyle })[] = [
-  {
-    name: '5 Out Motion Offense',
-    offenseWeight: 1.15,
-    defenseWeight: 0.95,
-    playmakingWeight: 1.2,
-    reboundingWeight: 0.9,
-    spacingBonusAreas: ['Corner', 'Wing', 'Slot'],
-    roleNeeds: ['Playmaker', 'Movement Shooter', 'Stretch Big'],
-    playStyle: {
-      pickAndRollBallHandler: 1.2,
-      rollMan: 0.6,
-      spotUp: 1.4,
-      postUp: 0.4,
-      isolation: 0.8,
-      handoff: 1.1,
-      cut: 1.2,
-      offScreen: 1.1,
-      putback: 0.6,
-      transition: 1.1,
-    },
-  },
-  {
-    name: 'Horns Offense',
-    offenseWeight: 1.05,
-    defenseWeight: 1,
-    playmakingWeight: 1.05,
-    reboundingWeight: 1.05,
-    spacingBonusAreas: ['High Post', 'Wing'],
-    roleNeeds: ['Point Forward', 'Roll Big', 'Shot Creator'],
-    playStyle: {
-      pickAndRollBallHandler: 1.2,
-      rollMan: 1.2,
-      spotUp: 1,
-      postUp: 1.1,
-      isolation: 1,
-      handoff: 1,
-      cut: 0.9,
-      offScreen: 0.8,
-      putback: 0.9,
-      transition: 0.9,
-    },
-  },
-  {
-    name: 'Triangle Offense',
-    offenseWeight: 1.1,
-    defenseWeight: 0.98,
-    playmakingWeight: 1.1,
-    reboundingWeight: 1.05,
-    spacingBonusAreas: ['Low Post', 'Corner'],
-    roleNeeds: ['Post Scorer', 'Wing Shooter', 'Connector'],
-    playStyle: {
-      pickAndRollBallHandler: 0.7,
-      rollMan: 0.9,
-      spotUp: 1.2,
-      postUp: 1.3,
-      isolation: 1,
-      handoff: 0.8,
-      cut: 1.1,
-      offScreen: 1,
-      putback: 1.1,
-      transition: 0.8,
-    },
-  },
-]
+    const roleMismatchPenalty = clamp((70 - c.offRoles[shooter.name].offenseFit) / 500, 0, 0.08)
+    const turnoverRate = clamp(
+      0.105 + (c.defBase + c.synergyDef - (shooter.playmaking + c.offBase + c.synergyOff)) / 430 + roleMismatchPenalty + (Math.random() * 0.03 - 0.015),
+      0.08,
+      0.2,
+    )
 
-const defensiveSystems: (SystemProfile & { defenseStyle: DefenseStyle })[] = [
-  {
-    name: 'Pack Line Defense',
-    offenseWeight: 0.96,
-    defenseWeight: 1.2,
-    playmakingWeight: 0.95,
-    reboundingWeight: 1.1,
-    spacingBonusAreas: ['Paint', 'Nail'],
-    roleNeeds: ['Anchor Big', 'Point of Attack', 'Help Defender'],
-    defenseStyle: {
-      rimProtection: 1.3,
-      perimeterPressure: 0.9,
-      switchability: 0.8,
-      rebounding: 1.2,
-      playDisruption: 0.9,
-    },
-  },
-  {
-    name: 'Switch Defense',
-    offenseWeight: 1,
-    defenseWeight: 1.12,
-    playmakingWeight: 0.98,
-    reboundingWeight: 1,
-    spacingBonusAreas: ['Perimeter', 'Wing'],
-    roleNeeds: ['Versatile Wing', 'Rim Protector', 'On-ball Stopper'],
-    defenseStyle: {
-      rimProtection: 1,
-      perimeterPressure: 1.2,
-      switchability: 1.4,
-      rebounding: 0.9,
-      playDisruption: 1.1,
-    },
-  },
-  {
-    name: '2-3 Zone Defense',
-    offenseWeight: 0.97,
-    defenseWeight: 1.15,
-    playmakingWeight: 0.96,
-    reboundingWeight: 1.05,
-    spacingBonusAreas: ['Paint', 'Corner'],
-    roleNeeds: ['Long Wing', 'Shot Blocker', 'Rebounder'],
-    defenseStyle: {
-      rimProtection: 1.2,
-      perimeterPressure: 0.7,
-      switchability: 0.7,
-      rebounding: 1.1,
-      playDisruption: 1,
-    },
-  },
-]
+    if (Math.random() < turnoverRate) {
+      c.offLines[shooter.name].tov += 1
+      if (Math.random() < 0.65) c.defLines[defender.name].stl += 1
+      offense = offense === 'away' ? 'home' : 'away'
+      continue
+    }
 
-const prepFocuses: PrepFocus[] = [
-  {
-    name: 'Film Study',
-    description: 'Prioritize scouting reports and counters for opponent actions.',
-    offenseBoost: 1.8,
-    defenseBoost: 1.5,
-    counterBoost: 2,
-    varianceMultiplier: 0.85,
-  },
-  {
-    name: 'Pace Control',
-    description: 'Slow the game down and emphasize execution to cut volatility.',
-    offenseBoost: 0.8,
-    defenseBoost: 2,
-    counterBoost: 0.8,
-    varianceMultiplier: 0.75,
-  },
-  {
-    name: 'Physicality',
-    description: 'Lean on defense, rebounding, and toughness to wear teams down.',
-    offenseBoost: 0.6,
-    defenseBoost: 2.4,
-    counterBoost: 0.6,
-    varianceMultiplier: 0.9,
-  },
-  {
-    name: 'Quick Strike',
-    description: 'Push tempo and spacing early to generate offensive edges.',
-    offenseBoost: 2.4,
-    defenseBoost: 0.4,
-    counterBoost: 1,
-    varianceMultiplier: 1.05,
-  },
-]
+    const shotSkill = shotType === 'rim' ? shooter.rim : shotType === 'mid' ? shooter.mid : shooter.three
+    const styleBoost =
+      (c.offSide.offenseStyle === '5-Out' && shotType === 'three' ? 2.5 : 0)
+      + (c.offSide.offenseStyle === 'Inside-Out' && shotType === 'rim' ? 2.5 : 0)
+      + (c.offSide.offenseStyle === 'Pace & Space' && c.offSide.creationFocus === 'transition' ? 2 : 0)
+    const defenseCounter =
+      ((offense === 'away' ? homeSide.defenseStyle : awaySide.defenseStyle) === 'Drop' && shotType === 'rim' ? 2.2 : 0)
+      + ((offense === 'away' ? homeSide.defenseStyle : awaySide.defenseStyle) === 'Zone' && shotType === 'rim' ? 1.6 : 0)
+      + ((offense === 'away' ? homeSide.defenseStyle : awaySide.defenseStyle) === 'Switch' && c.offSide.creationFocus === 'pnr' ? 1.3 : 0)
 
-const offensiveProfiles: Record<OffensiveProfileKey, OffensiveProfileRaw> = {
-  'Spot Up Shooter': {
-    usageRate: 16.4,
-    assistRate: 11.7,
-    pickAndRollBallHandler: 2.7,
-    rollMan: 6.1,
-    spotUp: 32.1,
-    postUp: 1.5,
-    isolation: 0.9,
-    handoff: 1.4,
-    cut: 11,
-    offScreen: 0.8,
-    putback: 8.5,
-    transition: 17.9,
-  },
-  'Secondary Ball Handler': {
-    usageRate: 18.2,
-    assistRate: 28.4,
-    pickAndRollBallHandler: 22.9,
-    rollMan: 1.1,
-    spotUp: 24.3,
-    postUp: 0.7,
-    isolation: 3.5,
-    handoff: 1.7,
-    cut: 2.7,
-    offScreen: 0.3,
-    putback: 1,
-    transition: 23.1,
-  },
-  'Primary Ball Handler': {
-    usageRate: 26.9,
-    assistRate: 34.9,
-    pickAndRollBallHandler: 32.2,
-    rollMan: 0.7,
-    spotUp: 13.3,
-    postUp: 3.1,
-    isolation: 14.8,
-    handoff: 5.4,
-    cut: 1.7,
-    offScreen: 2.6,
-    putback: 0.9,
-    transition: 20.1,
-  },
-  Rollman: {
-    usageRate: 13.9,
-    assistRate: 12.8,
-    pickAndRollBallHandler: 0,
-    rollMan: 20.9,
-    spotUp: 3,
-    postUp: 2.8,
-    isolation: 0.2,
-    handoff: 0,
-    cut: 25.6,
-    offScreen: 0,
-    putback: 17.5,
-    transition: 19.1,
-  },
-  'Versatile Big': {
-    usageRate: 22.7,
-    assistRate: 18.5,
-    pickAndRollBallHandler: 3,
-    rollMan: 16.1,
-    spotUp: 16.3,
-    postUp: 15.6,
-    isolation: 5.3,
-    handoff: 0.6,
-    cut: 11.6,
-    offScreen: 1.5,
-    putback: 8.6,
-    transition: 18.3,
-  },
-  'Movement Ball Handler': {
-    usageRate: 22.4,
-    assistRate: 23,
-    pickAndRollBallHandler: 25.3,
-    rollMan: 0.5,
-    spotUp: 22,
-    postUp: 0.3,
-    isolation: 6.1,
-    handoff: 8.8,
-    cut: 2.4,
-    offScreen: 4,
-    putback: 1.4,
-    transition: 20.3,
-  },
-  'Movement Shooter': {
-    usageRate: 17.8,
-    assistRate: 12.4,
-    pickAndRollBallHandler: 7.9,
-    rollMan: 2.7,
-    spotUp: 31.6,
-    postUp: 0.6,
-    isolation: 1,
-    handoff: 10.2,
-    cut: 2.5,
-    offScreen: 11.4,
-    putback: 1.2,
-    transition: 18.7,
-  },
-  Connector: {
-    usageRate: 16.4,
-    assistRate: 11.7,
-    pickAndRollBallHandler: 2.7,
-    rollMan: 6.1,
-    spotUp: 32.1,
-    postUp: 1.5,
-    isolation: 1,
-    handoff: 1.4,
-    cut: 11,
-    offScreen: 0.8,
-    putback: 8.5,
-    transition: 17.9,
-  },
-}
+    const makeRate = clamp(
+      0.43
+      + (shotSkill + shooter.offense + c.offBase + c.synergyOff - (defender.defense + c.defBase + c.synergyDef)) / 365
+      + styleBoost / 100
+      - defenseCounter / 100
+      - roleMismatchPenalty
+      + (Math.random() * 0.1 - 0.05),
+      shotType === 'three' ? 0.24 : 0.34,
+      shotType === 'three' ? 0.54 : 0.73,
+    )
 
-const defensiveProfiles: Record<DefensiveProfileKey, DefensiveProfileRaw> = {
-  'Rim Protector': {
-    craftedDpm: 3.1,
-    deflections: 2.1,
-    defensiveReboundRate: 27.4,
-    stealRate: 1.2,
-    blockRate: 5.6,
-    versatility: 3.4,
-    matchupDifficulty: 3.2,
-    guarding: {
-      dpg: 6,
-      dsg: 8,
-      dsf: 18,
-      dpf: 30,
-      dc: 38,
-    },
-  },
-  'On-Ball Guard': {
-    craftedDpm: 1.5,
-    deflections: 3.8,
-    defensiveReboundRate: 12.6,
-    stealRate: 2.7,
-    blockRate: 0.6,
-    versatility: 4,
-    matchupDifficulty: 4,
-    guarding: {
-      dpg: 40,
-      dsg: 30,
-      dsf: 15,
-      dpf: 10,
-      dc: 5,
-    },
-  },
-  'Versatile Wing': {
-    craftedDpm: 2.2,
-    deflections: 3.2,
-    defensiveReboundRate: 16.4,
-    stealRate: 1.9,
-    blockRate: 1.6,
-    versatility: 4.6,
-    matchupDifficulty: 4.2,
-    guarding: {
-      dpg: 20,
-      dsg: 25,
-      dsf: 30,
-      dpf: 20,
-      dc: 5,
-    },
-  },
-  'Switch Big': {
-    craftedDpm: 2.5,
-    deflections: 2.6,
-    defensiveReboundRate: 22.1,
-    stealRate: 1.5,
-    blockRate: 3,
-    versatility: 4.3,
-    matchupDifficulty: 3.8,
-    guarding: {
-      dpg: 12,
-      dsg: 15,
-      dsf: 28,
-      dpf: 25,
-      dc: 20,
-    },
-  },
-  'Help Defender': {
-    craftedDpm: 2.7,
-    deflections: 2.8,
-    defensiveReboundRate: 19.5,
-    stealRate: 1.6,
-    blockRate: 2.4,
-    versatility: 4.1,
-    matchupDifficulty: 3.4,
-    guarding: {
-      dpg: 16,
-      dsg: 18,
-      dsf: 26,
-      dpf: 25,
-      dc: 15,
-    },
-  },
-}
+    c.offLines[shooter.name].fga += 1
+    if (shotType === 'three') c.offLines[shooter.name].tpa += 1
 
-const players: Player[] = [
-  {
-    name: 'Darius Vale',
-    position: 'PG',
-    role: 'Playmaker',
-    offense: 88,
-    defense: 74,
-    playmaking: 92,
-    rebounding: 50,
-    stamina: 86,
-    favoriteAreas: ['Slot', 'Wing'],
-    systemsFit: ['5 Out Motion Offense', 'Horns Offense'],
-    offenseProfileKey: 'Primary Ball Handler',
-    defenseProfileKey: 'On-Ball Guard',
-  },
-  {
-    name: 'Malik Crest',
-    position: 'SG',
-    role: 'Movement Shooter',
-    offense: 90,
-    defense: 72,
-    playmaking: 76,
-    rebounding: 58,
-    stamina: 84,
-    favoriteAreas: ['Corner', 'Wing'],
-    systemsFit: ['5 Out Motion Offense', 'Triangle Offense'],
-    offenseProfileKey: 'Movement Shooter',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Jaxon Reed',
-    position: 'SF',
-    role: 'Versatile Wing',
-    offense: 82,
-    defense: 86,
-    playmaking: 78,
-    rebounding: 72,
-    stamina: 88,
-    favoriteAreas: ['Wing', 'Nail'],
-    systemsFit: ['Switch Defense', 'Pack Line Defense'],
-    offenseProfileKey: 'Connector',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Theo Knox',
-    position: 'PF',
-    role: 'Stretch Big',
-    offense: 84,
-    defense: 80,
-    playmaking: 70,
-    rebounding: 78,
-    stamina: 82,
-    favoriteAreas: ['High Post', 'Slot'],
-    systemsFit: ['5 Out Motion Offense', 'Horns Offense'],
-    offenseProfileKey: 'Versatile Big',
-    defenseProfileKey: 'Switch Big',
-  },
-  {
-    name: 'Benson Roane',
-    position: 'C',
-    role: 'Anchor Big',
-    offense: 76,
-    defense: 90,
-    playmaking: 62,
-    rebounding: 90,
-    stamina: 80,
-    favoriteAreas: ['Low Post', 'Paint'],
-    systemsFit: ['Pack Line Defense', '2-3 Zone Defense'],
-    offenseProfileKey: 'Rollman',
-    defenseProfileKey: 'Rim Protector',
-  },
-  {
-    name: 'Quinn Morales',
-    position: 'PG',
-    role: 'Shot Creator',
-    offense: 86,
-    defense: 72,
-    playmaking: 84,
-    rebounding: 44,
-    stamina: 82,
-    favoriteAreas: ['Slot', 'Wing'],
-    systemsFit: ['Horns Offense', 'Triangle Offense'],
-    offenseProfileKey: 'Primary Ball Handler',
-    defenseProfileKey: 'On-Ball Guard',
-  },
-  {
-    name: 'Arlo Hunter',
-    position: 'SG',
-    role: '3-and-D Player',
-    offense: 78,
-    defense: 85,
-    playmaking: 68,
-    rebounding: 62,
-    stamina: 90,
-    favoriteAreas: ['Corner', 'Wing'],
-    systemsFit: ['Switch Defense', '5 Out Motion Offense'],
-    offenseProfileKey: 'Spot Up Shooter',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Miles Hart',
-    position: 'SF',
-    role: 'Connector',
-    offense: 80,
-    defense: 80,
-    playmaking: 82,
-    rebounding: 70,
-    stamina: 86,
-    favoriteAreas: ['Wing', 'Slot'],
-    systemsFit: ['Triangle Offense', 'Pack Line Defense'],
-    offenseProfileKey: 'Connector',
-    defenseProfileKey: 'Help Defender',
-  },
-  {
-    name: 'Ronan Bishop',
-    position: 'PF',
-    role: 'Roll Big',
-    offense: 78,
-    defense: 82,
-    playmaking: 64,
-    rebounding: 86,
-    stamina: 84,
-    favoriteAreas: ['Paint', 'High Post'],
-    systemsFit: ['Horns Offense', '2-3 Zone Defense'],
-    offenseProfileKey: 'Rollman',
-    defenseProfileKey: 'Switch Big',
-  },
-  {
-    name: 'Isaiah Vaughn',
-    position: 'C',
-    role: 'Rim Protector',
-    offense: 72,
-    defense: 92,
-    playmaking: 54,
-    rebounding: 92,
-    stamina: 79,
-    favoriteAreas: ['Paint', 'Low Post'],
-    systemsFit: ['Pack Line Defense', '2-3 Zone Defense'],
-    offenseProfileKey: 'Rollman',
-    defenseProfileKey: 'Rim Protector',
-  },
-  {
-    name: 'Elliot Knox',
-    position: 'PG',
-    role: 'Point of Attack',
-    offense: 76,
-    defense: 86,
-    playmaking: 80,
-    rebounding: 52,
-    stamina: 90,
-    favoriteAreas: ['Slot', 'Nail'],
-    systemsFit: ['Switch Defense', 'Pack Line Defense'],
-    offenseProfileKey: 'Secondary Ball Handler',
-    defenseProfileKey: 'On-Ball Guard',
-  },
-  {
-    name: 'Carter Wynn',
-    position: 'SG',
-    role: 'Movement Shooter',
-    offense: 88,
-    defense: 70,
-    playmaking: 72,
-    rebounding: 54,
-    stamina: 83,
-    favoriteAreas: ['Corner', 'Wing'],
-    systemsFit: ['5 Out Motion Offense', 'Triangle Offense'],
-    offenseProfileKey: 'Movement Shooter',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Zion Mercer',
-    position: 'SF',
-    role: 'Point Forward',
-    offense: 84,
-    defense: 78,
-    playmaking: 86,
-    rebounding: 74,
-    stamina: 85,
-    favoriteAreas: ['High Post', 'Wing'],
-    systemsFit: ['Horns Offense', 'Switch Defense'],
-    offenseProfileKey: 'Secondary Ball Handler',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Devin Chase',
-    position: 'PF',
-    role: 'Rebounder',
-    offense: 74,
-    defense: 84,
-    playmaking: 62,
-    rebounding: 88,
-    stamina: 81,
-    favoriteAreas: ['Paint', 'Low Post'],
-    systemsFit: ['2-3 Zone Defense', 'Pack Line Defense'],
-    offenseProfileKey: 'Versatile Big',
-    defenseProfileKey: 'Help Defender',
-  },
-  {
-    name: 'Silas Rowe',
-    position: 'C',
-    role: 'Post Scorer',
-    offense: 82,
-    defense: 78,
-    playmaking: 60,
-    rebounding: 86,
-    stamina: 78,
-    favoriteAreas: ['Low Post', 'Paint'],
-    systemsFit: ['Triangle Offense', 'Horns Offense'],
-    offenseProfileKey: 'Versatile Big',
-    defenseProfileKey: 'Switch Big',
-  },
-  {
-    name: 'Jalen Pierce',
-    position: 'PG',
-    role: 'Playmaker',
-    offense: 84,
-    defense: 76,
-    playmaking: 88,
-    rebounding: 46,
-    stamina: 87,
-    favoriteAreas: ['Slot', 'Wing'],
-    systemsFit: ['5 Out Motion Offense', 'Horns Offense'],
-    offenseProfileKey: 'Primary Ball Handler',
-    defenseProfileKey: 'On-Ball Guard',
-  },
-  {
-    name: 'Kobe Rivers',
-    position: 'SG',
-    role: 'Shot Creator',
-    offense: 87,
-    defense: 73,
-    playmaking: 78,
-    rebounding: 52,
-    stamina: 82,
-    favoriteAreas: ['Wing', 'Corner'],
-    systemsFit: ['Triangle Offense', '5 Out Motion Offense'],
-    offenseProfileKey: 'Movement Ball Handler',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Aiden Frost',
-    position: 'SF',
-    role: 'Long Wing',
-    offense: 79,
-    defense: 88,
-    playmaking: 70,
-    rebounding: 76,
-    stamina: 88,
-    favoriteAreas: ['Wing', 'Nail'],
-    systemsFit: ['2-3 Zone Defense', 'Switch Defense'],
-    offenseProfileKey: 'Connector',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Troy Benton',
-    position: 'PF',
-    role: 'Stretch Big',
-    offense: 83,
-    defense: 76,
-    playmaking: 68,
-    rebounding: 78,
-    stamina: 83,
-    favoriteAreas: ['High Post', 'Corner'],
-    systemsFit: ['5 Out Motion Offense', 'Triangle Offense'],
-    offenseProfileKey: 'Versatile Big',
-    defenseProfileKey: 'Switch Big',
-  },
-  {
-    name: 'Micah Stone',
-    position: 'C',
-    role: 'Anchor Big',
-    offense: 74,
-    defense: 91,
-    playmaking: 58,
-    rebounding: 94,
-    stamina: 77,
-    favoriteAreas: ['Paint', 'Low Post'],
-    systemsFit: ['Pack Line Defense', '2-3 Zone Defense'],
-    offenseProfileKey: 'Rollman',
-    defenseProfileKey: 'Rim Protector',
-  },
-  {
-    name: 'Julian Wolfe',
-    position: 'PG',
-    role: 'Playmaker',
-    offense: 81,
-    defense: 74,
-    playmaking: 86,
-    rebounding: 48,
-    stamina: 85,
-    favoriteAreas: ['Slot', 'Wing'],
-    systemsFit: ['5 Out Motion Offense', 'Horns Offense'],
-    offenseProfileKey: 'Secondary Ball Handler',
-    defenseProfileKey: 'On-Ball Guard',
-  },
-  {
-    name: 'Dante Knox',
-    position: 'SG',
-    role: 'Movement Shooter',
-    offense: 86,
-    defense: 71,
-    playmaking: 70,
-    rebounding: 50,
-    stamina: 84,
-    favoriteAreas: ['Corner', 'Wing'],
-    systemsFit: ['5 Out Motion Offense', 'Triangle Offense'],
-    offenseProfileKey: 'Movement Shooter',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Cole Maddox',
-    position: 'SF',
-    role: 'Versatile Wing',
-    offense: 81,
-    defense: 85,
-    playmaking: 74,
-    rebounding: 72,
-    stamina: 86,
-    favoriteAreas: ['Wing', 'Nail'],
-    systemsFit: ['Switch Defense', 'Pack Line Defense'],
-    offenseProfileKey: 'Connector',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Gavin Ricks',
-    position: 'PF',
-    role: 'Help Defender',
-    offense: 72,
-    defense: 86,
-    playmaking: 64,
-    rebounding: 82,
-    stamina: 84,
-    favoriteAreas: ['Paint', 'Nail'],
-    systemsFit: ['Pack Line Defense', '2-3 Zone Defense'],
-    offenseProfileKey: 'Versatile Big',
-    defenseProfileKey: 'Help Defender',
-  },
-  {
-    name: 'Noah Vance',
-    position: 'C',
-    role: 'Rebounder',
-    offense: 70,
-    defense: 88,
-    playmaking: 55,
-    rebounding: 92,
-    stamina: 78,
-    favoriteAreas: ['Low Post', 'Paint'],
-    systemsFit: ['2-3 Zone Defense', 'Pack Line Defense'],
-    offenseProfileKey: 'Rollman',
-    defenseProfileKey: 'Rim Protector',
-  },
-  {
-    name: 'Tyrese North',
-    position: 'PG',
-    role: 'Point of Attack',
-    offense: 77,
-    defense: 88,
-    playmaking: 79,
-    rebounding: 50,
-    stamina: 90,
-    favoriteAreas: ['Slot', 'Nail'],
-    systemsFit: ['Switch Defense', 'Pack Line Defense'],
-    offenseProfileKey: 'Secondary Ball Handler',
-    defenseProfileKey: 'On-Ball Guard',
-  },
-  {
-    name: 'Phoenix Lane',
-    position: 'SG',
-    role: '3-and-D Player',
-    offense: 80,
-    defense: 86,
-    playmaking: 66,
-    rebounding: 60,
-    stamina: 88,
-    favoriteAreas: ['Corner', 'Wing'],
-    systemsFit: ['Switch Defense', '5 Out Motion Offense'],
-    offenseProfileKey: 'Spot Up Shooter',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Logan Price',
-    position: 'SF',
-    role: 'Wing Shooter',
-    offense: 85,
-    defense: 77,
-    playmaking: 72,
-    rebounding: 68,
-    stamina: 84,
-    favoriteAreas: ['Corner', 'Wing'],
-    systemsFit: ['Triangle Offense', '5 Out Motion Offense'],
-    offenseProfileKey: 'Spot Up Shooter',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Riley Kade',
-    position: 'PF',
-    role: 'Stretch Big',
-    offense: 82,
-    defense: 78,
-    playmaking: 66,
-    rebounding: 80,
-    stamina: 83,
-    favoriteAreas: ['High Post', 'Slot'],
-    systemsFit: ['5 Out Motion Offense', 'Horns Offense'],
-    offenseProfileKey: 'Versatile Big',
-    defenseProfileKey: 'Switch Big',
-  },
-  {
-    name: 'Ezra Holt',
-    position: 'C',
-    role: 'Shot Blocker',
-    offense: 73,
-    defense: 89,
-    playmaking: 58,
-    rebounding: 90,
-    stamina: 79,
-    favoriteAreas: ['Paint', 'Low Post'],
-    systemsFit: ['2-3 Zone Defense', 'Pack Line Defense'],
-    offenseProfileKey: 'Rollman',
-    defenseProfileKey: 'Rim Protector',
-  },
-  {
-    name: 'Caleb Starr',
-    position: 'PG',
-    role: 'Shot Creator',
-    offense: 85,
-    defense: 73,
-    playmaking: 83,
-    rebounding: 46,
-    stamina: 83,
-    favoriteAreas: ['Wing', 'Slot'],
-    systemsFit: ['Horns Offense', 'Triangle Offense'],
-    offenseProfileKey: 'Movement Ball Handler',
-    defenseProfileKey: 'On-Ball Guard',
-  },
-  {
-    name: 'Nico James',
-    position: 'SG',
-    role: 'Movement Shooter',
-    offense: 87,
-    defense: 72,
-    playmaking: 71,
-    rebounding: 52,
-    stamina: 82,
-    favoriteAreas: ['Corner', 'Wing'],
-    systemsFit: ['5 Out Motion Offense', 'Triangle Offense'],
-    offenseProfileKey: 'Movement Shooter',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Owen Stiles',
-    position: 'SF',
-    role: 'Point Forward',
-    offense: 83,
-    defense: 80,
-    playmaking: 84,
-    rebounding: 70,
-    stamina: 85,
-    favoriteAreas: ['High Post', 'Wing'],
-    systemsFit: ['Horns Offense', 'Switch Defense'],
-    offenseProfileKey: 'Secondary Ball Handler',
-    defenseProfileKey: 'Versatile Wing',
-  },
-  {
-    name: 'Hudson Hale',
-    position: 'PF',
-    role: 'Rebounder',
-    offense: 75,
-    defense: 85,
-    playmaking: 63,
-    rebounding: 87,
-    stamina: 82,
-    favoriteAreas: ['Paint', 'Low Post'],
-    systemsFit: ['2-3 Zone Defense', 'Pack Line Defense'],
-    offenseProfileKey: 'Rollman',
-    defenseProfileKey: 'Help Defender',
-  },
-  {
-    name: 'Grant Sloan',
-    position: 'C',
-    role: 'Roll Big',
-    offense: 78,
-    defense: 83,
-    playmaking: 60,
-    rebounding: 86,
-    stamina: 80,
-    favoriteAreas: ['Paint', 'High Post'],
-    systemsFit: ['Horns Offense', '2-3 Zone Defense'],
-    offenseProfileKey: 'Rollman',
-    defenseProfileKey: 'Switch Big',
-  },
-]
+    if (Math.random() < makeRate) {
+      const pts = shotType === 'three' ? 3 : 2
+      c.offLines[shooter.name].pts += pts
+      c.offLines[shooter.name].fgm += 1
+      if (shotType === 'three') c.offLines[shooter.name].tpm += 1
 
-const teamOptions = [
-  'Metro Monarchs',
-  'Harbor City Waves',
-  'Summit Peaks',
-  'Capital Commanders',
-  'Valley Vortex',
-  'Lakeside Legends',
-  'Skyline Flyers',
-  'Riverfront Royals',
-]
-
-const categories = [
-  {
-    title: 'Offensive Skills',
-    sections: [
-      {
-        title: 'Shooting & Finishing',
-        terms: [
-          'Shooting',
-          'Layup',
-          'Dunking',
-          'Floater',
-          'Fadeaway',
-          'Finger Roll',
-          'Power Layup',
-          'Reverse Layup',
-          'Bank Shot',
-          'Close-range Shot',
-          'Ambidexterity',
-          'Catching',
-        ],
-      },
-      {
-        title: 'Dribbling & Creation',
-        terms: [
-          'Dribbling',
-          'Dribbling Moves',
-          'Crossover Dribble',
-          'Behind the Back Dribble',
-          'Between the Legs Dribble',
-          'Escape Dribble',
-          'Speed Dribble',
-          'Snake Dribble',
-          'Stutter Step',
-          'Blow By',
-          'Fake and Drive',
-        ],
-      },
-      {
-        title: 'Passing & Playmaking',
-        terms: [
-          'Passing',
-          'Hook Pass',
-          'Chest Pass',
-          'Bounce Pass',
-          'Air Pass',
-          'Baseball Pass',
-          'Behind the Back Pass',
-          'Overhead Pass',
-          'No Look Pass',
-          'Lob Pass',
-          'Jump Pass',
-          'Kick Pass',
-          'Drift Pass',
-          'Pocket Pass',
-          'Wrap Around Pass',
-          'Dribble Pass',
-          'Pitch Ahead Pass',
-          'Outlet Pass',
-          'Inbound Pass',
-          'Skip Pass',
-        ],
-      },
-      {
-        title: 'Cutting & Screening',
-        terms: ['Cutting', 'Screening'],
-      },
-    ],
-  },
-  {
-    title: 'Defensive Skills',
-    sections: [
-      {
-        title: 'Core Defense',
-        terms: [
-          'Steal',
-          'Block',
-          'Closeout Defense',
-          'Denial Defense',
-          'Chase Down Block',
-          'Box Out',
-          'Crash the Boards',
-        ],
-      },
-    ],
-  },
-  {
-    title: 'Positions & Roles',
-    sections: [
-      {
-        title: 'Standard Positions',
-        terms: [
-          'Point Guard',
-          'Shooting Guard',
-          'Small Forward',
-          'Power Forward',
-          'Center Position',
-        ],
-      },
-      {
-        title: 'Hybrid Positions',
-        terms: ['Combo Guard', 'Point Forward', 'Swingman', 'Hybrid Position'],
-      },
-      {
-        title: 'Specialist Roles',
-        terms: ['3-and-D Player', 'Role Player', 'Bench Players'],
-      },
-    ],
-  },
-  {
-    title: 'Traits & Mentality',
-    sections: [
-      {
-        title: 'Physical Traits',
-        terms: ['Speed', 'Athleticism', 'Athletic Stance'],
-      },
-      {
-        title: 'Mental Traits',
-        terms: ['Aggressiveness', 'Clutch'],
-      },
-    ],
-  },
-  {
-    title: 'Offensive Systems',
-    sections: [
-      {
-        title: 'Motion Offenses',
-        terms: [
-          'Motion Offense',
-          '5 Out Motion Offense',
-          '4 Out 1 In Motion Offense',
-          '3 Out 2 In Motion Offense',
-          '2 Out 3 In Motion Offense',
-        ],
-      },
-      {
-        title: 'Set Offenses',
-        terms: [
-          'Triangle Offense',
-          'Princeton Offense',
-          'Horns Offense',
-          'Flex Offense',
-          'Box Offense',
-          'Circle Offense',
-          'Wheel Offense',
-          'Stack Offense',
-          'Shuffle Offense',
-          'Swing Offense',
-          'UCLA Offense',
-          'Hawk Offense',
-        ],
-      },
-      {
-        title: 'Continuity Offenses',
-        terms: ['Continuity Offense', 'Continuity Ball Screen Offense'],
-      },
-      {
-        title: 'Formation-Based',
-        terms: ['1-4 High Offense', '1-4 Low Offense'],
-      },
-      {
-        title: 'Specialty Offenses',
-        terms: [
-          'Attack and React Offense',
-          'Youth Basketball Offense',
-          'Zone Offense',
-          '2-3 Zone Offense',
-          'Box and 1 Offense',
-          'Undersized Basketball Team',
-        ],
-      },
-    ],
-  },
-  {
-    title: 'Offensive Actions',
-    sections: [
-      {
-        title: 'Cutting Actions',
-        terms: [
-          'Cutting',
-          'V-cut',
-          'Backdoor Cut',
-          'Curl Cut',
-          'Fade Cut',
-          'Laker Cut',
-          'Iverson Cut',
-          'Slot Cut',
-          'Split Cut',
-          'Zipper Cut',
-        ],
-      },
-      {
-        title: 'Screening Actions',
-        terms: [
-          'Screening',
-          'On-ball Screen',
-          'Off-ball Screen',
-          'Back Screen',
-          'Down Screen',
-          'Cross Screen',
-          'Flare Screen',
-          'Flex Screen',
-          'Elevator Screen',
-          'Brush Screen',
-          'Stagger Screen',
-          'Ram Screen',
-          'Slip Screen',
-          'Step-up Screen',
-          'Screen the Screener',
-        ],
-      },
-      {
-        title: 'Pick & Roll Concepts',
-        terms: [
-          'Pick and Roll',
-          'Pick and Pop',
-          'Spain Pick and Roll',
-          'Drag Screen',
-          'Roll and Replace',
-          'Snake Dribble',
-        ],
-      },
-      {
-        title: 'Ball Movement',
-        terms: [
-          'Ball Reversal',
-          'Give and Go',
-          'Dribble Handoff',
-          'Dribble Entry',
-          'Entry Pass',
-          'Pass and Cut',
-          'Pass and Screen Away',
-          'Boomerang Action',
-        ],
-      },
-      {
-        title: 'Specialized Actions',
-        terms: [
-          'Alley-oop',
-          'High Low Action',
-          'Blind Pig',
-          'Floppy Set',
-          'Hammer Set',
-          'Shake',
-          'Penetration',
-          'Dribble Penetration',
-          'Attack the Rim',
-        ],
-      },
-      {
-        title: 'Quick Plays & Situations',
-        terms: [
-          'Quick Hitters',
-          'After Timeout Plays',
-          'Baseline Out of Bounds Plays',
-          'Sideline Out of Bounds Plays',
-          'Tempo Control',
-          'Delay Offense',
-        ],
-      },
-      {
-        title: 'Transition Systems',
-        terms: [
-          'Transition Offense',
-          'Fast Break',
-          'Primary Break',
-          'Secondary Break',
-          'Numbered Fast Break',
-          '2 on 1',
-          '2 on 2',
-        ],
-      },
-    ],
-  },
-  {
-    title: 'Defensive Systems',
-    sections: [
-      {
-        title: 'Man to Man',
-        terms: [
-          'Man to Man Defense',
-          'Pack Line Defense',
-          'Ball Line Defense',
-          'Run and Jump Defense',
-        ],
-      },
-      {
-        title: 'Zone Defenses',
-        terms: [
-          'Zone Defense',
-          '2-3 Zone Defense',
-          '3-2 Zone Defense',
-          '1-2-2 Zone Defense',
-          '2-1-2 Zone Defense',
-          '1-3-1 Zone Defense',
-          '1-1-3 Zone Defense',
-          'Point Zone Defense',
-        ],
-      },
-      {
-        title: 'Press Defenses',
-        terms: [
-          'Full Court Press',
-          '1-2-1-1 Press Defense',
-          '2-2-1 Press Defense',
-          '1-2-2 Press Defense',
-          '2-1-2 Press Defense',
-          '1-3-1 Press Defense',
-          '1-1-3 Press Defense',
-          'Havoc Press Defense',
-        ],
-      },
-      {
-        title: 'Junk Defenses',
-        terms: [
-          'Junk Defense',
-          'Box and 1 Defense',
-          'Diamond and 1 Defense',
-          'Triangle and 2 Defense',
-          'Combination Defense',
-        ],
-      },
-      {
-        title: 'Specialty Defenses',
-        terms: [
-          'Amoeba Defense',
-          'Pressure Defense',
-          'Transition Defense',
-          'On-Ball Defense',
-          'Closeout Defense',
-          'Denial Defense',
-          'Ice Defense',
-          'Off-Ball Defense',
-          'Help Defense',
-          'Jump to the Ball',
-          'Stunt Defense',
-          'Shoot the Gap',
-          'Screen Defense',
-          'Ball Screen Defense',
-          'Hedge Defense',
-          'Drop Coverage',
-          'Blitz Defense',
-          'Switch Defense',
-          'Pressure Tactics',
-          'Double Team Defense',
-          'Trap Defense',
-        ],
-      },
-      {
-        title: 'Stopping Plays',
-        terms: ['Defensive Stop', 'Press Break Offense', '1-4 Press Break'],
-      },
-    ],
-  },
-  {
-    title: 'Game Formats & Court Areas',
-    sections: [
-      {
-        title: 'Game Formats',
-        terms: ['1 on 1', '2 on 2', '3 on 3', '4 on 4', '5 on 5'],
-      },
-      {
-        title: 'Practice Games',
-        terms: ['Around the World'],
-      },
-      {
-        title: 'Court Divisions',
-        terms: ['Frontcourt', 'Backcourt', 'Perimeter', 'Strong Side', 'Weak Side'],
-      },
-      {
-        title: 'Specific Areas',
-        terms: [
-          'High Post',
-          'Low Post',
-          'Wing',
-          'Corner',
-          'Slot',
-          'Dunker Spot',
-          'Coffin Corner',
-          'Nail',
-          'Baseline',
-        ],
-      },
-    ],
-  },
-  {
-    title: 'Rules, Violations, and Stats',
-    sections: [
-      {
-        title: 'General Concepts',
-        terms: ['Spacing', 'One Pass Away', 'Offense', 'Defense', 'Fake Pass'],
-      },
-      {
-        title: 'Fouls',
-        terms: [
-          'Fouls',
-          'Personal Foul',
-          'Defensive Foul',
-          'Offensive Foul',
-          'Shooting Foul',
-          'Blocking Foul',
-          'Charging Foul',
-          'Flagrant Foul',
-          'Technical Foul',
-          'Loose Ball Foul',
-          'Clear Path Foul',
-          'Transition Take Foul',
-          'Team Foul',
-        ],
-      },
-      {
-        title: 'Violations',
-        terms: [
-          'Violations',
-          'Backcourt Violation',
-          'Carrying',
-          'Illegal Screen',
-          'Air Ball',
-        ],
-      },
-      {
-        title: 'Time Rules & Penalties',
-        terms: ['Eight-second Rule', '24-second Shot Clock', 'Shot Clock', 'Bonus', 'Foul Out', 'Foul Trouble'],
-      },
-      {
-        title: 'Stats & Scoring',
-        terms: [
-          'Statistics',
-          'Assist',
-          'Field Goal',
-          'Turnover',
-          'Double Double',
-          'Time',
-          'Period',
-          'And One',
-          'Blowout',
-        ],
-      },
-      {
-        title: 'Drills',
-        terms: ['Shell Drill'],
-      },
-    ],
-  },
-]
-
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
-
-const percentToRating = (value: number, max: number) => clamp(1 + (value / max) * 98, 1, 99)
-
-const metricToRating = (value: number, max: number) => clamp(1 + (value / max) * 98, 1, 99)
-
-const adjustRating = (value: number, modifier: number, variance: number) => clamp(value * (modifier + variance), 1, 99)
-
-const getRandomItem = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)]
-
-const shuffle = <T,>(items: T[]) =>
-  items
-    .map((item) => ({ item, sort: Math.random() }))
-    .sort((a, b) => a.sort - b.sort)
-    .map(({ item }) => item)
-
-const buildRandomRoster = (excludeNames: string[], rosterSize = 8) => {
-  const available = players.filter((player) => !excludeNames.includes(player.name))
-  return shuffle(available).slice(0, rosterSize)
-}
-
-type PossessionSimResult = {
-  projectedPoints: number
-  projectedOpponent: number
-  possessions: number
-  paceBlend: number
-}
-
-const simulatePossessionGame = ({
-  lineup,
-  offenseSystem,
-  defenseSystem,
-  opponentRoster,
-  opponentOffense,
-  opponentDefense,
-  prepFocus,
-  includePrep,
-}: {
-  lineup: Player[]
-  offenseSystem: SystemProfile
-  defenseSystem: SystemProfile
-  opponentRoster: Player[]
-  opponentOffense: SystemProfile
-  opponentDefense: SystemProfile
-  prepFocus: PrepFocus
-  includePrep: boolean
-}): PossessionSimResult => {
-  const metrics = simulateMatchup(lineup, offenseSystem, defenseSystem)
-  const opponentMetrics = simulateMatchup(opponentRoster, opponentOffense, opponentDefense)
-
-  const offenseProfile = averageOffenseProfile(lineup)
-  const defenseProfile = averageDefenseProfile(lineup)
-  const opponentOffenseProfile = averageOffenseProfile(opponentRoster)
-  const opponentDefenseProfile = averageDefenseProfile(opponentRoster)
-
-  const offenseStyleFit = getOffenseStyleFit(offenseProfile, offenseSystem.playStyle)
-  const defenseStyleFit = getDefenseStyleFit(defenseProfile, defenseSystem.defenseStyle)
-  const opponentOffenseFit = getOffenseStyleFit(opponentOffenseProfile, opponentOffense.playStyle)
-  const opponentDefenseFit = getDefenseStyleFit(opponentDefenseProfile, opponentDefense.defenseStyle)
-
-  const pace = clamp(94 + (metrics.basePlaymaking - 75) * 0.45, 86, 106)
-  const opponentPace = clamp(94 + (opponentMetrics.basePlaymaking - 75) * 0.4, 86, 106)
-  const paceBlend = clamp((pace + opponentPace) / 2, 86, 106)
-  const possessions = Math.round(paceBlend)
-
-  const prepOffenseBoost = includePrep ? prepFocus.offenseBoost * 0.35 : 0
-  const prepDefenseBoost = includePrep ? prepFocus.defenseBoost * 0.35 : 0
-  const prepVariance = includePrep ? prepFocus.varianceMultiplier : 1
-
-  const simulateSide = ({
-    teamMetrics,
-    opponentMetrics,
-    offenseFit,
-    defenseFit,
-    offenseSystem,
-    defenseSystem,
-    extraOffense,
-    extraDefense,
-  }: {
-    teamMetrics: ReturnType<typeof simulateMatchup>
-    opponentMetrics: ReturnType<typeof simulateMatchup>
-    offenseFit: number
-    defenseFit: number
-    offenseSystem: SystemProfile
-    defenseSystem: SystemProfile
-    extraOffense: number
-    extraDefense: number
-  }) => {
-    const offenseRating =
-      teamMetrics.offenseScore +
-      getCounterBonus(offenseSystem, defenseSystem) +
-      offenseFit * 0.9 +
-      extraOffense
-    const defenseRating =
-      opponentMetrics.defenseScore +
-      getCounterBonus(defenseSystem, offenseSystem) * 0.4 +
-      defenseFit * 0.6 +
-      extraDefense
-
-    const playmakingEdge = teamMetrics.basePlaymaking - opponentMetrics.baseDefense
-    const reboundingEdge = teamMetrics.baseRebounding - opponentMetrics.baseRebounding
-    const scoringEdge = offenseRating - defenseRating
-
-    const turnoverRate = clamp(0.135 - playmakingEdge * 0.0015 + defenseRating * 0.0004, 0.08, 0.2)
-    const threeRate = clamp(0.32 + teamMetrics.basePlaymaking * 0.0008 + offenseFit * 0.002, 0.24, 0.42)
-    const threeMake = clamp(0.33 + scoringEdge * 0.0012, 0.25, 0.43)
-    const twoMake = clamp(0.49 + scoringEdge * 0.0015 + offenseFit * 0.0008, 0.38, 0.62)
-    const offensiveReboundRate = clamp(0.22 + reboundingEdge * 0.002, 0.12, 0.32)
-    const putbackFinishRate = clamp(0.52 + scoringEdge * 0.0008, 0.42, 0.66)
-
-    let points = 0
-    for (let i = 0; i < possessions; i += 1) {
-      const turnoverCheck = Math.random()
-      if (turnoverCheck < turnoverRate) {
-        continue
+      const assistRate = clamp(0.48 + (c.offSide.creationFocus === 'motion' ? 0.09 : 0) + c.offBase / 1000, 0.32, 0.76)
+      if (Math.random() < assistRate) {
+        const passer = pickWeighted(c.offenseTeam.roster.filter((p) => p.name !== shooter.name), (p) => p.playmaking * (c.offRoles[p.name].offenseRole === 'Creator' ? 1.2 : 1))
+        c.offLines[passer.name].ast += 1
       }
 
-      const shotSelection = Math.random()
-      const isThree = shotSelection < threeRate
-      const makeCheck = Math.random()
-      const makeRate = isThree ? threeMake : twoMake
+      if (offense === 'away') awayScore += pts
+      else homeScore += pts
+    } else {
+      const blockRate = clamp(0.05 + (defender.defense - shooter.offense) / 320 + (shotType === 'rim' ? 0.02 : 0), 0.02, 0.15)
+      if (Math.random() < blockRate) c.defLines[defender.name].blk += 1
 
-      if (makeCheck < makeRate) {
-        points += isThree ? 3 : 2
+      const orebRate = clamp(0.24 + (avg(c.offenseTeam.roster.map((p) => p.rebounding)) - avg(c.defenseTeam.roster.map((p) => p.rebounding))) / 260, 0.17, 0.35)
+      if (Math.random() < orebRate) {
+        const oreb = pickWeighted(c.offenseTeam.roster, (p) => p.rebounding)
+        c.offLines[oreb.name].reb += 1
+        if (Math.random() < 0.35) continue
       } else {
-        const reboundCheck = Math.random()
-        if (reboundCheck < offensiveReboundRate) {
-          const putbackCheck = Math.random()
-          if (putbackCheck < putbackFinishRate) {
-            points += 2
-          }
-        }
+        const dreb = pickWeighted(c.defenseTeam.roster, (p) => p.rebounding)
+        c.defLines[dreb.name].reb += 1
       }
     }
 
-    const variance = (Math.random() - 0.5) * 8 * prepVariance
-    return points + variance
+    offense = offense === 'away' ? 'home' : 'away'
   }
 
-  const projectedPoints = simulateSide({
-    teamMetrics: metrics,
-    opponentMetrics,
-    offenseFit: offenseStyleFit,
-    defenseFit: opponentDefenseFit,
-    offenseSystem,
-    defenseSystem: opponentDefense,
-    extraOffense: prepOffenseBoost,
-    extraDefense: 0,
-  })
+  const finalize = (team: TeamTemplate, lines: Record<string, PlayerLine>) =>
+    team.roster.map((p) => ({ ...lines[p.name], min: Number((lines[p.name].min * 2.4).toFixed(1)) }))
 
-  const projectedOpponent = simulateSide({
-    teamMetrics: opponentMetrics,
-    opponentMetrics: metrics,
-    offenseFit: opponentOffenseFit,
-    defenseFit: defenseStyleFit,
-    offenseSystem: opponentOffense,
-    defenseSystem,
-    extraOffense: 0,
-    extraDefense: prepDefenseBoost,
-  })
+  log.push(`${away.name} | Off style ${awaySide.offenseStyle}, Def style ${awaySide.defenseStyle}, Creation ${awaySide.creationFocus}`)
+  log.push(`${home.name} | Off style ${homeSide.offenseStyle}, Def style ${homeSide.defenseStyle}, Creation ${homeSide.creationFocus}`)
+  log.push(`Role fit (OFF/DEF): ${away.name} ${Math.round(awayRoleOff)}/${Math.round(awayRoleDef)} vs ${home.name} ${Math.round(homeRoleOff)}/${Math.round(homeRoleDef)}`)
+  log.push(`Pace (possessions per team): ${gamePace}`)
 
   return {
-    projectedPoints: clamp(projectedPoints, 78, 140),
-    projectedOpponent: clamp(projectedOpponent, 78, 140),
-    possessions,
-    paceBlend,
+    away: { name: away.name, score: awayScore, lines: finalize(away, awayLines) },
+    home: { name: home.name, score: homeScore, lines: finalize(home, homeLines) },
+    log,
   }
 }
 
-const counterMatrix: Record<string, Record<string, number>> = {
-  '5 Out Motion Offense': {
-    'Pack Line Defense': 2.4,
-    'Switch Defense': 1.4,
-    '2-3 Zone Defense': 1,
-  },
-  'Horns Offense': {
-    'Pack Line Defense': 1.4,
-    'Switch Defense': 2.2,
-    '2-3 Zone Defense': 0.6,
-  },
-  'Triangle Offense': {
-    'Pack Line Defense': 1.8,
-    'Switch Defense': 1,
-    '2-3 Zone Defense': 2.3,
-  },
-}
-
-const getCounterBonus = (offenseSystem: SystemProfile, defenseSystem: SystemProfile) =>
-  counterMatrix[offenseSystem.name]?.[defenseSystem.name] ?? 0.8
-
-const getNameSeed = (name: string) =>
-  name.split('').reduce((total, char) => total + char.charCodeAt(0), 0)
-
-const buildOffensiveProfile = (player: Player): OffensiveProfile => {
-  const base = offensiveProfiles[player.offenseProfileKey]
-  const variance = ((getNameSeed(player.name) % 13) - 6) / 100
-  const offenseModifier = 0.85 + player.offense / 200 + player.playmaking / 300
-
-  return {
-    usageRate: adjustRating(percentToRating(base.usageRate, 30), offenseModifier, variance),
-    assistRate: adjustRating(percentToRating(base.assistRate, 35), 0.8 + player.playmaking / 160, variance),
-    pickAndRollBallHandler: adjustRating(percentToRating(base.pickAndRollBallHandler, 35), 0.9 + player.playmaking / 220, variance),
-    rollMan: adjustRating(percentToRating(base.rollMan, 30), 0.8 + player.rebounding / 240, variance),
-    spotUp: adjustRating(percentToRating(base.spotUp, 35), 0.9 + player.offense / 240, variance),
-    postUp: adjustRating(percentToRating(base.postUp, 20), 0.9 + player.offense / 260, variance),
-    isolation: adjustRating(percentToRating(base.isolation, 20), 0.9 + player.offense / 240, variance),
-    handoff: adjustRating(percentToRating(base.handoff, 15), 0.9 + player.playmaking / 220, variance),
-    cut: adjustRating(percentToRating(base.cut, 30), 0.9 + player.stamina / 260, variance),
-    offScreen: adjustRating(percentToRating(base.offScreen, 15), 0.9 + player.offense / 260, variance),
-    putback: adjustRating(percentToRating(base.putback, 20), 0.8 + player.rebounding / 220, variance),
-    transition: adjustRating(percentToRating(base.transition, 25), 0.9 + player.stamina / 220, variance),
-  }
-}
-
-const buildDefensiveProfile = (player: Player): DefensiveProfile => {
-  const base = defensiveProfiles[player.defenseProfileKey]
-  const variance = ((getNameSeed(player.name) % 11) - 5) / 100
-  const defenseModifier = 0.85 + player.defense / 200
-
-  return {
-    craftedDpm: adjustRating(metricToRating(base.craftedDpm, 6), defenseModifier, variance),
-    deflections: adjustRating(metricToRating(base.deflections, 4), 0.9 + player.playmaking / 240, variance),
-    defensiveReboundRate: adjustRating(metricToRating(base.defensiveReboundRate, 35), 0.85 + player.rebounding / 200, variance),
-    stealRate: adjustRating(metricToRating(base.stealRate, 4), 0.9 + player.defense / 240, variance),
-    blockRate: adjustRating(metricToRating(base.blockRate, 6), 0.85 + player.defense / 220, variance),
-    versatility: adjustRating(metricToRating(base.versatility, 5), 0.9 + player.stamina / 250, variance),
-    matchupDifficulty: adjustRating(metricToRating(base.matchupDifficulty, 5), 0.9 + player.defense / 250, variance),
-    guarding: {
-      dpg: adjustRating(percentToRating(base.guarding.dpg, 50), 1, variance),
-      dsg: adjustRating(percentToRating(base.guarding.dsg, 50), 1, variance),
-      dsf: adjustRating(percentToRating(base.guarding.dsf, 50), 1, variance),
-      dpf: adjustRating(percentToRating(base.guarding.dpf, 50), 1, variance),
-      dc: adjustRating(percentToRating(base.guarding.dc, 50), 1, variance),
-    },
-  }
-}
-
-const averageOffenseProfile = (lineup: Player[]): OffensiveProfile => {
-  const totals = lineup.reduce(
-    (acc, player) => {
-      const profile = buildOffensiveProfile(player)
-      return {
-        usageRate: acc.usageRate + profile.usageRate,
-        assistRate: acc.assistRate + profile.assistRate,
-        pickAndRollBallHandler: acc.pickAndRollBallHandler + profile.pickAndRollBallHandler,
-        rollMan: acc.rollMan + profile.rollMan,
-        spotUp: acc.spotUp + profile.spotUp,
-        postUp: acc.postUp + profile.postUp,
-        isolation: acc.isolation + profile.isolation,
-        handoff: acc.handoff + profile.handoff,
-        cut: acc.cut + profile.cut,
-        offScreen: acc.offScreen + profile.offScreen,
-        putback: acc.putback + profile.putback,
-        transition: acc.transition + profile.transition,
-      }
-    },
-    {
-      usageRate: 0,
-      assistRate: 0,
-      pickAndRollBallHandler: 0,
-      rollMan: 0,
-      spotUp: 0,
-      postUp: 0,
-      isolation: 0,
-      handoff: 0,
-      cut: 0,
-      offScreen: 0,
-      putback: 0,
-      transition: 0,
-    },
-  )
-
-  const count = lineup.length || 1
-  return {
-    usageRate: totals.usageRate / count,
-    assistRate: totals.assistRate / count,
-    pickAndRollBallHandler: totals.pickAndRollBallHandler / count,
-    rollMan: totals.rollMan / count,
-    spotUp: totals.spotUp / count,
-    postUp: totals.postUp / count,
-    isolation: totals.isolation / count,
-    handoff: totals.handoff / count,
-    cut: totals.cut / count,
-    offScreen: totals.offScreen / count,
-    putback: totals.putback / count,
-    transition: totals.transition / count,
-  }
-}
-
-const averageDefenseProfile = (lineup: Player[]): DefensiveProfile => {
-  const totals = lineup.reduce(
-    (acc, player) => {
-      const profile = buildDefensiveProfile(player)
-      return {
-        craftedDpm: acc.craftedDpm + profile.craftedDpm,
-        deflections: acc.deflections + profile.deflections,
-        defensiveReboundRate: acc.defensiveReboundRate + profile.defensiveReboundRate,
-        stealRate: acc.stealRate + profile.stealRate,
-        blockRate: acc.blockRate + profile.blockRate,
-        versatility: acc.versatility + profile.versatility,
-        matchupDifficulty: acc.matchupDifficulty + profile.matchupDifficulty,
-        guarding: {
-          dpg: acc.guarding.dpg + profile.guarding.dpg,
-          dsg: acc.guarding.dsg + profile.guarding.dsg,
-          dsf: acc.guarding.dsf + profile.guarding.dsf,
-          dpf: acc.guarding.dpf + profile.guarding.dpf,
-          dc: acc.guarding.dc + profile.guarding.dc,
-        },
-      }
-    },
-    {
-      craftedDpm: 0,
-      deflections: 0,
-      defensiveReboundRate: 0,
-      stealRate: 0,
-      blockRate: 0,
-      versatility: 0,
-      matchupDifficulty: 0,
-      guarding: {
-        dpg: 0,
-        dsg: 0,
-        dsf: 0,
-        dpf: 0,
-        dc: 0,
-      },
-    },
-  )
-
-  const count = lineup.length || 1
-  return {
-    craftedDpm: totals.craftedDpm / count,
-    deflections: totals.deflections / count,
-    defensiveReboundRate: totals.defensiveReboundRate / count,
-    stealRate: totals.stealRate / count,
-    blockRate: totals.blockRate / count,
-    versatility: totals.versatility / count,
-    matchupDifficulty: totals.matchupDifficulty / count,
-    guarding: {
-      dpg: totals.guarding.dpg / count,
-      dsg: totals.guarding.dsg / count,
-      dsf: totals.guarding.dsf / count,
-      dpf: totals.guarding.dpf / count,
-      dc: totals.guarding.dc / count,
-    },
-  }
-}
-
-const getOffenseStyleFit = (profile: OffensiveProfile, playStyle: OffenseStyle) =>
-  (profile.pickAndRollBallHandler * playStyle.pickAndRollBallHandler +
-    profile.rollMan * playStyle.rollMan +
-    profile.spotUp * playStyle.spotUp +
-    profile.postUp * playStyle.postUp +
-    profile.isolation * playStyle.isolation +
-    profile.handoff * playStyle.handoff +
-    profile.cut * playStyle.cut +
-    profile.offScreen * playStyle.offScreen +
-    profile.putback * playStyle.putback +
-    profile.transition * playStyle.transition) /
-  99
-
-const getDefenseStyleFit = (profile: DefensiveProfile, defenseStyle: DefenseStyle) =>
-  (profile.blockRate * defenseStyle.rimProtection +
-    profile.stealRate * defenseStyle.playDisruption +
-    profile.deflections * defenseStyle.playDisruption +
-    profile.versatility * defenseStyle.switchability +
-    profile.defensiveReboundRate * defenseStyle.rebounding +
-    profile.matchupDifficulty * defenseStyle.perimeterPressure) /
-  99
-
-const getTopOffenseTraits = (profile: OffensiveProfile) => {
-  const entries = Object.entries(profile) as [keyof OffensiveProfile, number][]
-  return entries
-    .filter(([key]) => key !== 'usageRate' && key !== 'assistRate')
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([key, value]) => `${key.replace(/([A-Z])/g, ' $1').trim()}: ${value.toFixed(0)}`)
-}
-
-const getDefenseHighlights = (profile: DefensiveProfile) => [
-  `DPM ${profile.craftedDpm.toFixed(0)}`,
-  `Defl ${profile.deflections.toFixed(0)}`,
-  `DRB ${profile.defensiveReboundRate.toFixed(0)}`,
-  `STL ${profile.stealRate.toFixed(0)}`,
-  `BLK ${profile.blockRate.toFixed(0)}`,
-]
-
-const getOffenseClusterRating = (profile: OffensiveProfile) =>
-  (profile.pickAndRollBallHandler +
-    profile.rollMan +
-    profile.spotUp +
-    profile.postUp +
-    profile.isolation +
-    profile.handoff +
-    profile.cut +
-    profile.offScreen +
-    profile.putback +
-    profile.transition) /
-  10
-
-const getDefenseClusterRating = (profile: DefensiveProfile) =>
-  (profile.craftedDpm +
-    profile.deflections +
-    profile.defensiveReboundRate +
-    profile.stealRate +
-    profile.blockRate +
-    profile.versatility +
-    profile.matchupDifficulty) /
-  7
-
-const randomRange = (min: number, max: number) => Math.random() * (max - min) + min
-
-const simulateBoxScore = (
-  lineup: Player[],
-  opponentDefenseProfile: DefensiveProfile,
-  opponentOffenseProfile: OffensiveProfile,
-  pace: number,
-) => {
-  const totalUsage = lineup.reduce((total, player) => total + buildOffensiveProfile(player).usageRate, 0) || 1
-  const defenseImpact = clamp(
-    (opponentDefenseProfile.craftedDpm + opponentDefenseProfile.blockRate + opponentDefenseProfile.stealRate) / 330,
-    0.12,
-    0.4,
-  )
-  const opponentBallSecurity = clamp((opponentOffenseProfile.usageRate + opponentOffenseProfile.assistRate) / 200, 0.45, 0.8)
-
-  const lines = lineup.map((player) => {
-    const offenseProfile = buildOffensiveProfile(player)
-    const defenseProfile = buildDefensiveProfile(player)
-    const usageShare = offenseProfile.usageRate / totalUsage
-    const minutes = clamp(22 + player.stamina * 0.18 + randomRange(-4, 4), 18, 38)
-    const possessions = pace * (minutes / 48)
-    const shotQuality =
-      (player.offense + offenseProfile.spotUp + offenseProfile.isolation + offenseProfile.transition) / 4 / 100
-
-    const pointsBase = possessions * usageShare * (1.8 + shotQuality) * (1 - defenseImpact * 0.9)
-    const points = clamp(pointsBase + randomRange(-4, 4) + shotQuality * 6, 0, 45)
-
-    const assistsBase =
-      possessions * usageShare * (offenseProfile.assistRate / 120) * (1 - defenseImpact * 0.4) * (0.8 + player.playmaking / 200)
-    const assists = clamp(assistsBase + randomRange(-1.5, 1.5), 0, 15)
-
-    const reboundsBase =
-      possessions * (player.rebounding / 100) * (0.22 + offenseProfile.putback / 500) * (1 - opponentDefenseProfile.defensiveReboundRate / 140)
-    const rebounds = clamp(reboundsBase + randomRange(-1.5, 1.5), 0, 18)
-
-    const stealsBase = possessions * (defenseProfile.stealRate / 100) * (1 - opponentBallSecurity) * 0.5
-    const steals = clamp(stealsBase + randomRange(-0.6, 0.6), 0, 5)
-
-    const blocksBase = possessions * (defenseProfile.blockRate / 100) * 0.35 * (1 + (1 - shotQuality))
-    const blocks = clamp(blocksBase + randomRange(-0.4, 0.4), 0, 4)
-
-    const turnoversBase = possessions * usageShare * (0.22 + defenseImpact * 0.6)
-    const turnovers = clamp(turnoversBase + randomRange(-1, 1), 0, 7)
-
-    return {
-      name: player.name,
-      minutes: Math.round(minutes),
-      points: Math.round(points),
-      rebounds: Math.round(rebounds),
-      assists: Math.round(assists),
-      steals: Math.round(steals),
-      blocks: Math.round(blocks),
-      turnovers: Math.round(turnovers),
-    }
-  })
-
-  const totals = lines.reduce(
-    (acc, line) => ({
-      name: 'Totals',
-      minutes: acc.minutes + line.minutes,
-      points: acc.points + line.points,
-      rebounds: acc.rebounds + line.rebounds,
-      assists: acc.assists + line.assists,
-      steals: acc.steals + line.steals,
-      blocks: acc.blocks + line.blocks,
-      turnovers: acc.turnovers + line.turnovers,
-    }),
-    { name: 'Totals', minutes: 0, points: 0, rebounds: 0, assists: 0, steals: 0, blocks: 0, turnovers: 0 },
-  )
-
-  return {
-    lines: lines.sort((a, b) => b.points - a.points),
-    totals,
-  }
-}
-
-const simulateMatchup = (lineup: Player[], offenseSystem: SystemProfile, defenseSystem: SystemProfile) => {
-  const baseOffense = lineup.reduce((total, player) => total + player.offense, 0) / lineup.length
-  const baseDefense = lineup.reduce((total, player) => total + player.defense, 0) / lineup.length
-  const basePlaymaking = lineup.reduce((total, player) => total + player.playmaking, 0) / lineup.length
-  const baseRebounding = lineup.reduce((total, player) => total + player.rebounding, 0) / lineup.length
-  const stamina = lineup.reduce((total, player) => total + player.stamina, 0) / lineup.length
-
-  const systemFit = lineup.filter((player) => player.systemsFit.includes(offenseSystem.name)).length
-  const roleFit = lineup.filter((player) => offenseSystem.roleNeeds.includes(player.role)).length
-  const defenseFit = lineup.filter((player) => defenseSystem.roleNeeds.includes(player.role)).length
-
-  const spacingBonus = lineup
-    .flatMap((player) => player.favoriteAreas)
-    .filter((area) => offenseSystem.spacingBonusAreas.includes(area)).length
-
-  const offenseScore =
-    baseOffense * offenseSystem.offenseWeight +
-    basePlaymaking * offenseSystem.playmakingWeight +
-    spacingBonus * 0.6 +
-    systemFit * 1.5 +
-    roleFit * 1.2
-
-  const defenseScore =
-    baseDefense * defenseSystem.defenseWeight +
-    baseRebounding * defenseSystem.reboundingWeight +
-    defenseFit * 1.1 +
-    stamina * 0.08
-
-  return {
-    offenseScore,
-    defenseScore,
-    baseOffense,
-    baseDefense,
-    basePlaymaking,
-    baseRebounding,
-    spacingBonus,
-    systemFit,
-    roleFit,
-    defenseFit,
-  }
-}
-
-const App = () => {
-  const [teamName, setTeamName] = useState(teamOptions[0])
-  const [activePage, setActivePage] = useState<
-    'team' | 'systems' | 'projection' | 'simulate' | 'details'
-  >('team')
-  const [offenseSystem, setOffenseSystem] = useState(offensiveSystems[0])
-  const [defenseSystem, setDefenseSystem] = useState(defensiveSystems[0])
-  const [prepFocus, setPrepFocus] = useState(prepFocuses[0])
-  const [log, setLog] = useState<string[]>([])
-  const [result, setResult] = useState<string>('')
-  const [opponentInfo, setOpponentInfo] = useState<string>('')
-  const [boxScore, setBoxScore] = useState<{ home: BoxScoreSummary; away: BoxScoreSummary } | null>(null)
-
-  const [selectedPlayers, setSelectedPlayers] = useState<Player[]>(() => players.slice(0, 8))
-  const [opponentRoster, setOpponentRoster] = useState<Player[]>(() => players.slice(8, 16))
-  const [opponentOffense, setOpponentOffense] = useState(offensiveSystems[1])
-  const [opponentDefense, setOpponentDefense] = useState(defensiveSystems[1])
-  const [previewOpponentRoster, setPreviewOpponentRoster] = useState<Player[]>(() =>
-    buildRandomRoster(players.slice(0, 8).map((player) => player.name), 5),
-  )
-  const [previewOpponentOffense, setPreviewOpponentOffense] = useState(offensiveSystems[2])
-  const [previewOpponentDefense, setPreviewOpponentDefense] = useState(defensiveSystems[0])
-
-  const lineup = useMemo(() => selectedPlayers, [selectedPlayers])
-
-  const togglePlayer = (player: Player) => {
-    setSelectedPlayers((prev) => {
-      const exists = prev.some((item) => item.name === player.name)
-      if (exists) {
-        return prev.filter((item) => item.name !== player.name)
-      }
-      if (prev.length >= 10) {
-        return prev
-      }
-      return [...prev, player]
-    })
-  }
-
-  const handleRandomizeOpponent = () => {
-    const roster = buildRandomRoster(selectedPlayers.map((player) => player.name))
-    setOpponentRoster(roster)
-    setOpponentOffense(getRandomItem(offensiveSystems))
-    setOpponentDefense(getRandomItem(defensiveSystems))
-    setOpponentInfo('Opponent scouting report updated.')
-  }
-
-  const handleRefreshPreview = () => {
-    const roster = buildRandomRoster(selectedPlayers.map((player) => player.name), 5)
-    setPreviewOpponentRoster(roster)
-    setPreviewOpponentOffense(getRandomItem(offensiveSystems))
-    setPreviewOpponentDefense(getRandomItem(defensiveSystems))
-  }
-
-  const previewProjection = useMemo(() => {
-    if (lineup.length < 5) {
-      return null
-    }
-
-    const { projectedPoints, projectedOpponent, paceBlend, possessions } = simulatePossessionGame({
-      lineup,
-      offenseSystem,
-      defenseSystem,
-      opponentRoster: previewOpponentRoster,
-      opponentOffense: previewOpponentOffense,
-      opponentDefense: previewOpponentDefense,
-      prepFocus,
-      includePrep: false,
-    })
-
-    const delta = projectedPoints - projectedOpponent
-    const winProbability = clamp(50 + delta * 1.6, 8, 92)
-
-    return {
-      projectedPoints,
-      projectedOpponent,
-      paceBlend,
-      possessions,
-      winProbability,
-      delta,
-    }
-  }, [
-    lineup,
-    offenseSystem,
-    defenseSystem,
-    previewOpponentRoster,
-    previewOpponentOffense,
-    previewOpponentDefense,
-    prepFocus,
-  ])
-
-  const handleSimulate = () => {
-    if (lineup.length < 5) {
-      setResult('Select at least 5 players to simulate a matchup.')
-      return
-    }
-
-    const metrics = simulateMatchup(lineup, offenseSystem, defenseSystem)
-    const opponentMetrics = simulateMatchup(opponentRoster, opponentOffense, opponentDefense)
-
-    const offenseCounter = getCounterBonus(offenseSystem, opponentDefense) * prepFocus.counterBoost
-    const defenseCounter = getCounterBonus(opponentOffense, defenseSystem) * prepFocus.counterBoost
-
-    const offenseProfile = averageOffenseProfile(lineup)
-    const defenseProfile = averageDefenseProfile(lineup)
-    const opponentOffenseProfile = averageOffenseProfile(opponentRoster)
-    const opponentDefenseProfile = averageDefenseProfile(opponentRoster)
-
-    const offenseStyleFit = getOffenseStyleFit(offenseProfile, offenseSystem.playStyle)
-    const defenseStyleFit = getDefenseStyleFit(defenseProfile, defenseSystem.defenseStyle)
-    const opponentOffenseFit = getOffenseStyleFit(opponentOffenseProfile, opponentOffense.playStyle)
-    const opponentDefenseFit = getDefenseStyleFit(opponentDefenseProfile, opponentDefense.defenseStyle)
-
-    const { projectedPoints, projectedOpponent, paceBlend, possessions } = simulatePossessionGame({
-      lineup,
-      offenseSystem,
-      defenseSystem,
-      opponentRoster,
-      opponentOffense,
-      opponentDefense,
-      prepFocus,
-      includePrep: true,
-    })
-
-    const homeBoxScore = simulateBoxScore(lineup, opponentDefenseProfile, opponentOffenseProfile, paceBlend)
-    const awayBoxScore = simulateBoxScore(opponentRoster, defenseProfile, offenseProfile, paceBlend)
-
-    const summary = `Final Score Projection: ${projectedPoints.toFixed(0)} - ${projectedOpponent.toFixed(0)}`
-    const detail = `Prep: ${prepFocus.name} | Counter edge ${offenseCounter.toFixed(1)} | Pace ${
-      paceBlend.toFixed(0)
-    } (${possessions} poss)`
-    const offenseDetail = `Offense cluster fit ${offenseStyleFit.toFixed(1)} | Defense cluster fit ${
-      defenseStyleFit.toFixed(1)
-    }`
-    const defenseDetail = `Your Defense Fit ${metrics.defenseFit}/${lineup.length} | Opp Offense Fit ${
-      opponentMetrics.systemFit
-    }/${opponentRoster.length}`
-    const rosterDetail = `Roster ${lineup.length} players | Opponent ${opponentRoster.length} players (${opponentOffense.name} / ${
-      opponentDefense.name
-    })`
-    const boxScoreDetail = `Box score leaders: ${homeBoxScore.lines[0]?.name ?? 'N/A'} ${homeBoxScore.lines[0]?.points ?? 0} pts`
-
-    setResult(summary)
-    setOpponentInfo(`Opponent: ${opponentOffense.name} + ${opponentDefense.name}`)
-    setLog((prev) => [summary, detail, offenseDetail, defenseDetail, rosterDetail, boxScoreDetail, ...prev].slice(0, 8))
-    setBoxScore({ home: homeBoxScore, away: awayBoxScore })
-  }
-
+function TeamTable({ title, lines }: { title: string; lines: PlayerLine[] }) {
   return (
-    <div className="page">
-      <header className="hero">
-        <p className="eyebrow">Basketball Deck Builder - Term Categories</p>
-        <h1>NBA MyTeam Simulation Builder</h1>
-        <p className="subtitle">
-          Build an 82-game simulation by rating players with NBA terms, assigning fixed player cards to roles, and
-          choosing offensive/defensive systems that fit the lineup. Not every player thrives in every scheme—fit
-          drives wins.
-        </p>
-      </header>
+    <section className="table-card">
+      <h3>{title}</h3>
+      <table>
+        <thead>
+          <tr><th>Player</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TOV</th><th>FG</th><th>3PT</th></tr>
+        </thead>
+        <tbody>
+          {lines.map((line) => (
+            <tr key={line.name}>
+              <td>{line.name} ({line.pos})</td><td>{line.min}</td><td>{line.pts}</td><td>{line.reb}</td><td>{line.ast}</td><td>{line.stl}</td><td>{line.blk}</td><td>{line.tov}</td><td>{line.fgm}/{line.fga}</td><td>{line.tpm}/{line.tpa}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
 
-      <nav className="page-nav">
-        {[
-          { id: 'team', label: 'Team & Players' },
-          { id: 'systems', label: 'Offense & Defense' },
-          { id: 'projection', label: 'Live Projection' },
-          { id: 'simulate', label: 'Simulate Game' },
-          { id: 'details', label: 'Details' },
-        ].map((page) => (
-          <button
-            key={page.id}
-            type="button"
-            className={`page-tab ${activePage === page.id ? 'active' : ''}`}
-            onClick={() => setActivePage(page.id as typeof activePage)}
-          >
-            {page.label}
-          </button>
-        ))}
-      </nav>
-
-      {activePage === 'team' ? (
-        <section className="simulator">
-          <div className="simulator-panel">
-            <p className="step-label">Team setup</p>
-            <h2>Select your team</h2>
-            <p className="muted">Start with a team identity before building out the rotation.</p>
-            <label>
-              Team identity
-              <select value={teamName} onChange={(event) => setTeamName(event.target.value)}>
-                {teamOptions.map((team) => (
-                  <option key={team} value={team}>
-                    {team}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="team-summary">
-              <span className="badge">{teamName}</span>
-              <span className="muted">Selected players: {lineup.length} / 10</span>
-            </div>
-          </div>
-
-          <div className="simulator-panel">
-            <p className="step-label">Roster build</p>
-            <h2>Select players</h2>
-            <p className="muted">
-              Select up to 10 players from the pool. Aim for at least 5 to generate a matchup and balance roles for
-              counters.
-            </p>
-            <div className="roster-summary">
-              <span>Selected: {lineup.length} players</span>
-              <span className="muted">Pool size: {players.length} players</span>
-            </div>
-            <div className="roster-grid">
-              {players.map((player) => {
-                const isSelected = lineup.some((item) => item.name === player.name)
-                const offenseProfile = buildOffensiveProfile(player)
-                const defenseProfile = buildDefensiveProfile(player)
-                const offenseRating = getOffenseClusterRating(offenseProfile)
-                const defenseRating = getDefenseClusterRating(defenseProfile)
-                return (
-                  <button
-                    key={player.name}
-                    type="button"
-                    className={`roster-card ${isSelected ? 'selected' : ''}`}
-                    onClick={() => togglePlayer(player)}
-                  >
-                    <div className="roster-card-header">
-                      <h3>{player.name}</h3>
-                      <span className="badge">{player.position}</span>
-                    </div>
-                    <p className="muted">{player.role}</p>
-                    <div className="profile-tags">
-                      <span className="profile-chip">Off: {player.offenseProfileKey}</span>
-                      <span className="profile-chip">Def: {player.defenseProfileKey}</span>
-                    </div>
-                    <div className="roster-stats">
-                      <span>Off {player.offense}</span>
-                      <span>Def {player.defense}</span>
-                      <span>Play {player.playmaking}</span>
-                      <span>O-OVR {offenseRating.toFixed(0)}</span>
-                      <span>D-OVR {defenseRating.toFixed(0)}</span>
-                    </div>
-                    <div className="profile-micro">
-                      {getTopOffenseTraits(offenseProfile).map((trait) => (
-                        <span key={trait}>{trait}</span>
-                      ))}
-                    </div>
-                    <div className="profile-micro">
-                      {getDefenseHighlights(defenseProfile).map((trait) => (
-                        <span key={trait}>{trait}</span>
-                      ))}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      {activePage === 'systems' ? (
-        <section className="simulator">
-          <div className="simulator-panel">
-            <p className="step-label">Systems</p>
-            <h2>Build offense & defense</h2>
-            <p className="muted">Pick a scheme pair that matches your roster profile.</p>
-            <div className="select-row">
-              <label>
-                Offensive System
-                <select
-                  value={offenseSystem.name}
-                  onChange={(event) =>
-                    setOffenseSystem(
-                      offensiveSystems.find((system) => system.name === event.target.value) ?? offensiveSystems[0],
-                    )
-                  }
-                >
-                  {offensiveSystems.map((system) => (
-                    <option key={system.name} value={system.name}>
-                      {system.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Defensive System
-                <select
-                  value={defenseSystem.name}
-                  onChange={(event) =>
-                    setDefenseSystem(
-                      defensiveSystems.find((system) => system.name === event.target.value) ?? defensiveSystems[0],
-                    )
-                  }
-                >
-                  {defensiveSystems.map((system) => (
-                    <option key={system.name} value={system.name}>
-                      {system.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </div>
-
-          <div className="simulator-panel">
-            <h2>System fit snapshot</h2>
-            <p className="muted">Keep an eye on lineup roles that fit your chosen schemes.</p>
-            <div className="lineup">
-              {lineup.map((player) => (
-                <div key={player.name} className="player-card compact">
-                  <div className="player-header">
-                    <div>
-                      <h3>{player.name}</h3>
-                      <span className="badge">{player.position}</span>
-                    </div>
-                    <div className="rating">{Math.round((player.offense + player.defense) / 2)}</div>
-                  </div>
-                  <div className="meta">
-                    <span>Role: {player.role}</span>
-                    <span>System fit: {player.systemsFit.join(', ')}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      {activePage === 'projection' ? (
-        <section className="simulator">
-          <div className="simulator-panel">
-            <div className="projection-header">
-              <div>
-                <p className="step-label">Live projection</p>
-                <h2>Projected matchup vs random 5-team</h2>
-              </div>
-              <button className="secondary" type="button" onClick={handleRefreshPreview}>
-                New random 5-team
-              </button>
-            </div>
-            {previewProjection ? (
-              <div className="projection-card">
-                <div className="projection-score">
-                  <div>
-                    <span className="projection-label">{teamName}</span>
-                    <strong>{previewProjection.projectedPoints.toFixed(0)}</strong>
-                  </div>
-                  <span className="projection-divider">vs</span>
-                  <div>
-                    <span className="projection-label">Random 5</span>
-                    <strong>{previewProjection.projectedOpponent.toFixed(0)}</strong>
-                  </div>
-                </div>
-                <div className="projection-meta">
-                  <span>
-                    Projected pace: {previewProjection.paceBlend.toFixed(0)} ({previewProjection.possessions} poss)
-                  </span>
-                  <span>
-                    Win chance: {previewProjection.winProbability.toFixed(0)}% ({previewProjection.delta.toFixed(1)} net)
-                  </span>
-                </div>
-                <div className="projection-opponent">
-                  <p className="muted">
-                    Opponent systems: {previewOpponentOffense.name} / {previewOpponentDefense.name}
-                  </p>
-                  <div className="opponent-roster">
-                    {previewOpponentRoster.map((player) => (
-                      <span key={player.name} className="pill">
-                        {player.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="muted">Select at least five players to unlock a live projection.</p>
-            )}
-          </div>
-
-          <div className="simulator-panel">
-            <h2>Projection checklist</h2>
-            <ul className="checklist">
-              <li>Minimum 5 players selected.</li>
-              <li>Offense and defense systems chosen.</li>
-              <li>Refresh for a new random 5-team preview.</li>
-            </ul>
-          </div>
-        </section>
-      ) : null}
-
-      {activePage === 'simulate' ? (
-        <section className="simulator">
-          <div className="simulator-panel">
-            <p className="step-label">Game sim</p>
-            <h2>Simulate the game</h2>
-            <p className="muted">
-              Lock in a prep focus, then run the full game sim with scouting, counters, and box score variance.
-            </p>
-            <div className="select-row">
-              <label>
-                Prep Focus
-                <select
-                  value={prepFocus.name}
-                  onChange={(event) =>
-                    setPrepFocus(prepFocuses.find((focus) => focus.name === event.target.value) ?? prepFocuses[0])
-                  }
-                >
-                  {prepFocuses.map((focus) => (
-                    <option key={focus.name} value={focus.name}>
-                      {focus.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="button-row">
-              <button className="primary" type="button" onClick={handleSimulate}>
-                Simulate Game
-              </button>
-              <button className="secondary" type="button" onClick={handleRandomizeOpponent}>
-                Randomize Opponent
-              </button>
-            </div>
-            {result ? <div className="result">{result}</div> : null}
-            {opponentInfo ? <div className="opponent-info">{opponentInfo}</div> : null}
-            <div className="log">
-              <h3>Latest simulation notes</h3>
-              {log.length === 0 ? (
-                <p className="muted">Run a simulation to generate a summary.</p>
-              ) : (
-                <ul>
-                  {log.map((entry, index) => (
-                    <li key={`${entry}-${index}`}>{entry}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            {boxScore ? (
-              <div className="box-score">
-                <h3>Simulated Box Score</h3>
-                <p className="muted">
-                  Player outputs blend usage, performance ratings, and opponent scheme pressure. Rerun for new variance.
-                </p>
-                <div className="box-score-grid">
-                  {[
-                    { title: 'Your Lineup', data: boxScore.home },
-                    { title: 'Opponent', data: boxScore.away },
-                  ].map((group) => (
-                    <div key={group.title} className="box-score-card">
-                      <h4>{group.title}</h4>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Player</th>
-                            <th>MIN</th>
-                            <th>PTS</th>
-                            <th>REB</th>
-                            <th>AST</th>
-                            <th>STL</th>
-                            <th>BLK</th>
-                            <th>TOV</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {group.data.lines.map((line) => (
-                            <tr key={`${group.title}-${line.name}`}>
-                              <td>{line.name}</td>
-                              <td>{line.minutes}</td>
-                              <td>{line.points}</td>
-                              <td>{line.rebounds}</td>
-                              <td>{line.assists}</td>
-                              <td>{line.steals}</td>
-                              <td>{line.blocks}</td>
-                              <td>{line.turnovers}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr>
-                            <td>{group.data.totals.name}</td>
-                            <td>{group.data.totals.minutes}</td>
-                            <td>{group.data.totals.points}</td>
-                            <td>{group.data.totals.rebounds}</td>
-                            <td>{group.data.totals.assists}</td>
-                            <td>{group.data.totals.steals}</td>
-                            <td>{group.data.totals.blocks}</td>
-                            <td>{group.data.totals.turnovers}</td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-
-      {activePage === 'details' ? (
-        <>
-          <section className="simulator">
-            <div className="simulator-panel">
-              <h2>Your Lineup Roles & Fit</h2>
-              <p className="muted">Player cards are selectable. Adjust roles and lineups to maximize system synergy.</p>
-              <div className="lineup">
-                {lineup.map((player) => {
-                  const offenseProfile = buildOffensiveProfile(player)
-                  const defenseProfile = buildDefensiveProfile(player)
-                  const offenseRating = getOffenseClusterRating(offenseProfile)
-                  const defenseRating = getDefenseClusterRating(defenseProfile)
-                  return (
-                    <div key={player.name} className="player-card">
-                      <div className="player-header">
-                        <div>
-                          <h3>{player.name}</h3>
-                          <span className="badge">{player.position}</span>
-                          <span className="badge badge-secondary">{player.role}</span>
-                        </div>
-                        <div className="rating">{Math.round((player.offense + player.defense) / 2)}</div>
-                      </div>
-                      <div className="stats">
-                        <div>
-                          <strong>Off</strong> {player.offense}
-                        </div>
-                        <div>
-                          <strong>Def</strong> {player.defense}
-                        </div>
-                        <div>
-                          <strong>Play</strong> {player.playmaking}
-                        </div>
-                        <div>
-                          <strong>Reb</strong> {player.rebounding}
-                        </div>
-                        <div>
-                          <strong>Sta</strong> {player.stamina}
-                        </div>
-                        <div>
-                          <strong>O-OVR</strong> {offenseRating.toFixed(0)}
-                        </div>
-                        <div>
-                          <strong>D-OVR</strong> {defenseRating.toFixed(0)}
-                        </div>
-                      </div>
-                      <div className="profile-tags">
-                        <span className="profile-chip">Offense Cluster: {player.offenseProfileKey}</span>
-                        <span className="profile-chip">Defense Cluster: {player.defenseProfileKey}</span>
-                      </div>
-                      <div className="profile-grid">
-                        <div>
-                          <h4>Offensive profile</h4>
-                          <ul>
-                            {getTopOffenseTraits(offenseProfile).map((trait) => (
-                              <li key={trait}>{trait}</li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div>
-                          <h4>Defensive profile</h4>
-                          <ul>
-                            {getDefenseHighlights(defenseProfile).map((trait) => (
-                              <li key={trait}>{trait}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-                      <div className="meta">
-                        <span>Fav areas: {player.favoriteAreas.join(', ')}</span>
-                        <span>System fit: {player.systemsFit.join(', ')}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="simulator-panel">
-              <h2>Opponent Snapshot</h2>
-              <p className="muted">Opponent systems are randomized, so scouting and prep change the outcome.</p>
-              <div className="opponent-card">
-                <h3>{opponentOffense.name}</h3>
-                <p className="muted">Defense: {opponentDefense.name}</p>
-                <div className="opponent-roster">
-                  {opponentRoster.map((player) => (
-                    <span key={player.name} className="pill">
-                      {player.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="simulator">
-            <div className="simulator-panel">
-              <h2>Prep Focus Notes</h2>
-              <p className="muted">See what each focus emphasizes and how it shifts your simulation edge.</p>
-              <div className="prep-notes">
-                {prepFocuses.map((focus) => (
-                  <div key={focus.name} className={`prep-card ${prepFocus.name === focus.name ? 'active' : ''}`}>
-                    <h4>{focus.name}</h4>
-                    <p>{focus.description}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="simulator-panel">
-              <h2>Clustering methodology</h2>
-              <ul>
-                <li>Offense clustering uses usage, assist, and play-type frequencies converted to a 1-99 scale.</li>
-                <li>Defense clustering uses DPM, deflections, rebounding, steals, blocks, versatility, and matchup load on a 1-99 scale.</li>
-                <li>Players can technically run any action, but their 1-99 cluster profile shapes the simulation outcome.</li>
-                <li>Prep focus and counters let you tilt outcomes by leaning into strengths and covering weaknesses.</li>
-              </ul>
-            </div>
-          </section>
-
-          <section className="simulator">
-            <div className="simulator-panel">
-              <h2>Simulation focus</h2>
-              <ul>
-                <li>Use the terminology to drive play selection, shot quality, and matchup outcomes.</li>
-                <li>Track player favorite areas (corner, wing, high post) to influence spacing and shot charts.</li>
-                <li>Blend offensive actions with defensive counters to mirror NBA complexity.</li>
-                <li>Scale the same tags into season-long fatigue, morale, and consistency modifiers.</li>
-              </ul>
-            </div>
-
-            <div className="simulator-panel">
-              <h2>Term categories</h2>
-              <div className="grid">
-                {categories.map((category) => (
-                  <details key={category.title} className="card">
-                    <summary>
-                      <span>{category.title}</span>
-                      <span className="count">{category.sections.reduce((total, section) => total + section.terms.length, 0)} terms</span>
-                    </summary>
-                    <div className="card-body">
-                      {category.sections.map((section) => (
-                        <div key={section.title} className="section">
-                          <h3>{section.title}</h3>
-                          <div className="terms">
-                            {section.terms.map((term) => (
-                              <span key={term} className="pill">
-                                {term}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                ))}
-              </div>
-            </div>
-          </section>
-        </>
-      ) : null}
-
+function TeamSkills({ team, side }: { team: TeamTemplate; side: PregameSide }) {
+  return (
+    <div className="skills-wrap">
+      <h3>Player roles + visible skills</h3>
+      <table>
+        <thead>
+          <tr><th>Player</th><th>Off role</th><th>Def role</th><th>OFF</th><th>DEF</th><th>PM</th><th>REB</th><th>RIM</th><th>MID</th><th>3PT</th></tr>
+        </thead>
+        <tbody>
+          {team.roster.map((p) => {
+            const roles = getPlayerRoles(p, side)
+            return (
+              <tr key={p.name}>
+                <td>{p.name}</td>
+                <td>{roles.offenseRole} ({Math.round(roles.offenseFit)})</td>
+                <td>{roles.defenseRole} ({Math.round(roles.defenseFit)})</td>
+                <td>{p.offense}</td><td>{p.defense}</td><td>{p.playmaking}</td><td>{p.rebounding}</td><td>{p.rim}</td><td>{p.mid}</td><td>{p.three}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
 
-export default App
+function SideSetup({ label, side, onChange, excludeTeamId }: { label: string; side: PregameSide; onChange: (next: PregameSide) => void; excludeTeamId?: string }) {
+  const team = teams.find((t) => t.id === side.teamId) ?? teams[0]
+  const mix = normalizeMix(side.shotMix)
+
+  const updateTeam = (teamId: string) => {
+    const fresh = defaultSide(teamId)
+    onChange({ ...fresh, offenseStyle: side.offenseStyle, defenseStyle: side.defenseStyle, shotMix: side.shotMix, creationFocus: side.creationFocus })
+  }
+
+  return (
+    <section className="setup-card">
+      <h2>{label}</h2>
+      <label>Team
+        <select value={side.teamId} onChange={(e) => updateTeam(e.target.value)}>
+          {teams.filter((t) => t.id !== excludeTeamId).map((teamOption) => <option key={teamOption.id} value={teamOption.id}>{teamOption.name}</option>)}
+        </select>
+      </label>
+
+      <div className="grid-two">
+        <label>Offense Style
+          <select value={side.offenseStyle} onChange={(e) => onChange({ ...side, offenseStyle: e.target.value as OffenseStyle })}>
+            {offenseStyles.map((style) => <option key={style} value={style}>{style}</option>)}
+          </select>
+        </label>
+        <label>Defense Style
+          <select value={side.defenseStyle} onChange={(e) => onChange({ ...side, defenseStyle: e.target.value as DefenseStyle })}>
+            {defenseStyles.map((style) => <option key={style} value={style}>{style}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <label>How you get shots (creation focus)
+        <select value={side.creationFocus} onChange={(e) => onChange({ ...side, creationFocus: e.target.value as CreationType })}>
+          {creationTypes.map((c) => <option key={c} value={c}>{c.toUpperCase()}</option>)}
+        </select>
+      </label>
+
+      <div className="grid-two">
+        <label>Primary scorer
+          <select value={side.primaryScorer} onChange={(e) => onChange({ ...side, primaryScorer: e.target.value })}>
+            {team.roster.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+          </select>
+        </label>
+        <label>Secondary scorer
+          <select value={side.secondaryScorer} onChange={(e) => onChange({ ...side, secondaryScorer: e.target.value })}>
+            {team.roster.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="mix-grid">
+        <label>Rim shots ({Math.round(mix.rim)}%)<input type="range" min={10} max={70} value={side.shotMix.rim} onChange={(e) => onChange({ ...side, shotMix: { ...side.shotMix, rim: Number(e.target.value) } })} /></label>
+        <label>Midrange ({Math.round(mix.mid)}%)<input type="range" min={10} max={55} value={side.shotMix.mid} onChange={(e) => onChange({ ...side, shotMix: { ...side.shotMix, mid: Number(e.target.value) } })} /></label>
+        <label>Three-point ({Math.round(mix.three)}%)<input type="range" min={15} max={65} value={side.shotMix.three} onChange={(e) => onChange({ ...side, shotMix: { ...side.shotMix, three: Number(e.target.value) } })} /></label>
+      </div>
+
+      <p className="note">Team fit synergy for selected styles: <strong>{Math.round((team.offenseFit[side.offenseStyle] + team.defenseFit[side.defenseStyle]) / 2)}</strong></p>
+      <TeamSkills team={team} side={side} />
+    </section>
+  )
+}
+
+export default function App() {
+  const [awaySide, setAwaySide] = useState<PregameSide>(defaultSide('waves'))
+  const [homeSide, setHomeSide] = useState<PregameSide>(defaultSide('monarchs'))
+  const [result, setResult] = useState<GameResult | null>(null)
+  const canSim = useMemo(() => awaySide.teamId !== homeSide.teamId, [awaySide.teamId, homeSide.teamId])
+
+  return (
+    <main className="page">
+      <header>
+        <p className="eyebrow">Pregame Setup + Game Sim</p>
+        <h1>5v5 NBA Game Simulator</h1>
+        <p>Every player now has offensive and defensive roles, and all player skills are visible in pregame so better fit + better skills lead to better results.</p>
+      </header>
+
+      <section className="setup-grid">
+        <SideSetup label="Away Team" side={awaySide} onChange={setAwaySide} excludeTeamId={homeSide.teamId} />
+        <SideSetup label="Home Team" side={homeSide} onChange={setHomeSide} excludeTeamId={awaySide.teamId} />
+      </section>
+
+      <div className="actions">
+        <button disabled={!canSim} onClick={() => setResult(simulateGame(awaySide, homeSide))}>Simulate Game</button>
+      </div>
+
+      {result ? (
+        <>
+          <section className="scoreline">
+            <h2>{result.away.name} {result.away.score} - {result.home.score} {result.home.name}</h2>
+            <ul>{result.log.map((line) => <li key={line}>{line}</li>)}</ul>
+          </section>
+          <section className="tables">
+            <TeamTable title={result.away.name} lines={result.away.lines} />
+            <TeamTable title={result.home.name} lines={result.home.lines} />
+          </section>
+        </>
+      ) : null}
+    </main>
+  )
+}
